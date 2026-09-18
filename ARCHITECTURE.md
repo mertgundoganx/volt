@@ -322,6 +322,15 @@ capacity rather than assuming it. `grpc::open_stream` registers in the same
 UI it is the same kind of thing; sending an empty message means "nothing more
 from me", which is how a client-streaming call asks for its reply.
 
+**A stream says `closed` once, and not before it is.** Every task that owns a
+connection — WebSocket, server-sent events, gRPC — calls `Streams::forget`
+and only then emits `closed`, exactly once. Announcing it first leaves a
+window in which the UI has been told the connection ended while the registry
+still lists it as open, and a second `closed` behind the first shows up in the
+transcript as a socket that closed twice. Both were real: the WebSocket task
+emitted the server's reason inside the loop and an empty one after, and the
+gRPC task announced before it forgot.
+
 **Reflection is written by hand, and has to be.** Calling `ServerReflection`
 would normally mean compiling its `.proto`, which is circular: volt reaches for
 reflection precisely because it has no descriptor pool yet. So `reflection.rs`

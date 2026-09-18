@@ -165,6 +165,8 @@ pub async fn open_websocket(
     let registry = streams.clone_registry();
     tokio::spawn(async move {
         use tokio_tungstenite::tungstenite::Message;
+        // Why it ended, said once at the end rather than inside the loop.
+        let mut said = String::new();
         loop {
             tokio::select! {
                 _ = &mut stopped => {
@@ -193,10 +195,9 @@ pub async fn open_websocket(
                             emit(&sink, &finished, "message", format!("[{} binary bytes]", bytes.len()), None)
                         }
                         Message::Close(frame) => {
-                            let said = frame
+                            said = frame
                                 .map(|frame| format!("{} {}", frame.code, frame.reason))
                                 .unwrap_or_else(|| "closed by the server".into());
-                            emit(&sink, &finished, "closed", said, None);
                             break;
                         }
                         // Ping and pong are answered by tungstenite itself.
@@ -205,9 +206,11 @@ pub async fn open_websocket(
                 }
             }
         }
-        // Whatever ended it, the registry should not keep holding it.
+        // Whatever ended it, the registry stops holding it before the event goes
+        // out — announcing a closed connection the map still has is how a caller
+        // that acts on `closed` finds it open.
         registry.forget(&finished);
-        emit(&sink, &finished, "closed", "", None);
+        emit(&sink, &finished, "closed", said, None);
     });
 
     Ok(Open { id, kind: "websocket", url })
@@ -506,10 +509,16 @@ mod tests {
             .await
             .unwrap();
 
-        wait_for(&events, "closed");
-        // The task removes itself, so nothing is left claiming to be connected.
+        let closed = wait_for(&events, "closed");
+        assert_eq!(closed.data, "closed by the server", "the reason reaches the one close event");
+        // Emptied before the event goes out, so this holds the moment a listener
+        // hears it — which is when the UI acts on it.
         assert!(streams.open_ids().is_empty(), "{:?}", streams.open_ids());
         assert!(streams.send("ws-gone", "x".into()).is_err());
+        assert!(
+            events.recv_timeout(std::time::Duration::from_millis(300)).is_err(),
+            "one close, not two"
+        );
     }
 
     #[test]

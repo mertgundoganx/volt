@@ -376,9 +376,10 @@ pub async fn open_stream(
                 },
             }
         }
-        stream::emit(&sink, &id_for_task, "closed", closing, None);
-        // Whatever ended it, the registry must not go on claiming it is open.
+        // The registry stops holding it before the event goes out, or a caller
+        // that acts on `closed` can still find it open.
         registry.forget(&id_for_task);
+        stream::emit(&sink, &id_for_task, "closed", closing, None);
     });
 
     Ok(stream::Open { id, kind: "grpc", url })
