@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Nuxt build output
+.nuxt/
+.output/
+dist
+
+# Rust build output
+src-tauri/target/
+
+# Tauri generated files
+src-tauri/gen/
+
+# Secret values, never commit these. A collection carries its own .gitignore
+# with the same rules; these cover a collection kept inside this repository.
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# The bin a delete moves things to
+.trash/
+
+# Local noise
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Never: the release signing private key. Kept outside the repository.
+*.key
+*.key.password

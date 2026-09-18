@@ -1,0 +1,23 @@
+name: Log in
+seq: 1
+method: POST
+url: '{{baseUrl}}/posts'
+headers:
+  - name: Content-Type
+    value: application/json
+    enabled: true
+body:
+  type: json
+  content: |-
+    {
+      "username": "demo",
+      "password": "{{token}}"
+    }
+auth:
+  type: none
+docs: |-
+  Shows how a request body carries variables. `{{token}}` is marked secret in
+  `environments/local.yaml`, so its value lives in the gitignored `.env.local`
+  and never reaches this file.
+
+  The placeholder API has no real login route; it echoes whatever you post.

@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package shop.v1;
+
+// A tiny service, for volt's own tests and as something to point the gRPC
+// editor at while trying it out.
+service Orders {
+  rpc GetOrder(GetOrderRequest) returns (Order);
+  rpc WatchOrders(WatchRequest) returns (stream Order);
+  rpc PlaceOrders(stream GetOrderRequest) returns (Order);
+  rpc Chat(stream GetOrderRequest) returns (stream Order);
+}
+
+message GetOrderRequest {
+  string id = 1;
+}
+
+message WatchRequest {
+  string since = 1;
+}
+
+message Order {
+  string id = 1;
+  int32 total = 2;
+  bool paid = 3;
+  repeated string items = 4;
+}

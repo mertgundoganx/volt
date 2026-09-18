@@ -1,0 +1,36 @@
+{
+  "name": "volt",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": "https://github.com/mertgundoganx/volt",
+  "description": "Git-native, open source API client",
+  "private": true,
+  "packageManager": "pnpm@12.4.1",
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "app": "tauri dev",
+    "app:build": "tauri build",
+    "tauri": "tauri",
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "typecheck": "nuxt typecheck"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "nuxt": "^4.5.2",
+    "typescript": "~5.9.3",
+    "vue-tsc": "^3.3.11"
+  },
+  "dependencies": {
+    "@fontsource-variable/archivo": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@pinia/nuxt": "^1.0.2",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-dialog": "^2.7.3",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-store": "^2.4.5",
+    "@tauri-apps/plugin-updater": "^2.11.0",
+    "pinia": "^4.0.3"
+  }
+}

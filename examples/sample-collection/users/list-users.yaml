@@ -1,0 +1,12 @@
+name: List users
+seq: 1
+method: GET
+url: '{{baseUrl}}/users'
+params:
+  - name: _limit
+    value: '3'
+    enabled: true
+body:
+  type: none
+auth:
+  type: inherit

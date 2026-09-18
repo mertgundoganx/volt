@@ -1,0 +1,278 @@
+/*
+ * volt design tokens — "Voltage".
+ *
+ * Dark first. The app is a dark instrument panel with one live current running
+ * through it: electric violet marks the things that *do* something — the Send
+ * key, the request you are on, a `{{variable}}`, the focus ring. Everything
+ * else is a cool near-black neutral so that current has somewhere to glow.
+ *
+ * Depth comes from layering and light, not from boxes: surfaces step upward
+ * (`--bg-0` the frame, `--bg-3` a floating menu), hairlines are barely there,
+ * and anything that floats carries a rim of light along its top edge.
+ *
+ * Components take every colour, radius and size from here — never a hex in a
+ * component. Dark is the default palette on bare `:root`; light redefines
+ * tokens only, once for the OS setting (unless dark is forced) and once for an
+ * explicit light choice. Contrast is measured: every text token is >= 4.5:1 on
+ * the surface it sits on, and `--faint` / `--punc` >= 3:1.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* ---- Surfaces. A ladder, darkest at the frame. -------------------------- */
+  --bg-0: #08090D;        /* the frame: title bar, sidebar, gutters */
+  --bg-1: #0E1016;        /* the working surface */
+  --bg-2: #14171F;        /* raised: cards, tab strips, the probe */
+  --bg-3: #1A1E28;        /* floating: menus, dialogs, popovers */
+  --well: #0A0C11;        /* recessed: inputs, code, response body */
+  --hover: rgba(255, 255, 255, 0.045);
+  --press: rgba(255, 255, 255, 0.08);
+
+  /* A rim of light along the top edge of anything that floats. */
+  --rim: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+  /* ---- Ink ---------------------------------------------------------------- */
+  --ink: #E9EBF4;
+  --ink-2: #AFB6CB;       /* secondary text */
+  --silk: #878FA8;        /* small caps labels, meta */
+  --faint: #666E86;       /* placeholders, line numbers, disabled */
+
+  /* ---- Lines. Structure is drawn, not boxed in. --------------------------- */
+  --line: #242938;
+  --line-soft: #191D28;
+  --line-strong: #394054;
+
+  /* ---- The current. One accent, and it means "live". ---------------------- */
+  --accent: #6D4AF5;      /* fills: white reads on it */
+  --accent-hi: #8B6DFF;   /* hover */
+  --accent-lo: #4B2FC9;   /* pressed, borders */
+  --accent-text: #A78BFA; /* the accent as text on a dark surface */
+  --accent-ink: #FFFFFF;  /* text on a filled accent */
+  --accent-tint: rgba(124, 92, 255, 0.17);
+  --accent-line: rgba(124, 92, 255, 0.45);
+  --accent-glow: 0 0 0 1px rgba(124, 92, 255, 0.55), 0 8px 28px -8px rgba(124, 92, 255, 0.75);
+  --ring: 0 0 0 2px var(--bg-1), 0 0 0 4px var(--accent-line);
+
+  /* ---- Meaning. Separate from the accent: a warning is amber, never violet. */
+  --ok: #34D399;
+  --warn: #FBBF24;
+  --bad: #FB5E5E;
+  --info: #60A5FA;
+  --ok-tint: rgba(52, 211, 153, 0.14);
+  --warn-tint: rgba(251, 191, 36, 0.14);
+  --bad-tint: rgba(251, 94, 94, 0.14);
+  --info-tint: rgba(96, 165, 250, 0.14);
+
+  /* ---- HTTP methods. Distinct at a glance, and never violet: that is the
+         accent's alone. ------------------------------------------------------ */
+  --m-get: #34D399;
+  --m-post: #FBBF24;
+  --m-put: #60A5FA;
+  --m-patch: #22D3EE;
+  --m-delete: #FB5E5E;
+  --m-other: #8B93AC;
+
+  /* ---- {{variables}} — the accent again, because that is what they are. --- */
+  --var: #A78BFA;
+  --var-bg: rgba(124, 92, 255, 0.16);
+  --var-line: rgba(124, 92, 255, 0.36);
+
+  /* ---- Syntax ------------------------------------------------------------- */
+  --syn-key: #E9EBF4;
+  --syn-str: #7EE7B0;
+  --syn-num: #FFB86B;
+  --syn-lit: #A78BFA;     /* true, false, null */
+  --punc: #666E86;
+
+  --selection: rgba(124, 92, 255, 0.35);
+  --backdrop: rgba(4, 5, 8, 0.72);
+
+  /* ---- Elevation ---------------------------------------------------------- */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 2px 6px -1px rgba(0, 0, 0, 0.5), 0 8px 20px -8px rgba(0, 0, 0, 0.6);
+  --shadow-pop:
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 2px 6px -2px rgba(0, 0, 0, 0.6),
+    0 20px 48px -16px rgba(0, 0, 0, 0.85);
+
+  /* ---- Shape. Softer than before, and still by role. ---------------------- */
+  --r-xs: 5px;            /* checkboxes, kbd, variable marks */
+  --r-sm: 8px;            /* buttons, inputs, rows, segments */
+  --r-md: 11px;           /* the probe, menus, cards */
+  --r-lg: 16px;           /* dialogs */
+  --r-full: 999px;        /* pills */
+
+  /* ---- Space, on a 4px grid ---------------------------------------------- */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+
+  /* ---- Type --------------------------------------------------------------- */
+  --font-ui: "Archivo Variable", "Archivo", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
+  --t-micro: 10px;
+  --t-label: 10.5px;      /* small caps labels */
+  --t-meta: 11.5px;       /* mono meta: paths, counts */
+  --t-small: 12.5px;
+  --t-body: 13.5px;
+  --t-code: 13px;
+  --t-title: 20px;
+  --t-readout: 34px;
+
+  /* ---- Sizes -------------------------------------------------------------- */
+  --h-bar: 46px;          /* top bar */
+  --h-control: 32px;
+  --h-row: 30px;          /* tree and table rows */
+  --h-probe: 46px;
+
+  /* ---- Motion ------------------------------------------------------------- */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur: 140ms;
+  --dur-slow: 220ms;
+}
+
+/* --------------------------------------------------------------------------
+ * Light. Cool and bright rather than warm: the same instrument under daylight,
+ * not a different product. The accent darkens so it still reads on white.
+ * -------------------------------------------------------------------------- */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg-0: #EDEFF6;
+    --bg-1: #F7F8FC;
+    --bg-2: #FFFFFF;
+    --bg-3: #FFFFFF;
+    --well: #FFFFFF;
+    --hover: rgba(18, 21, 34, 0.05);
+    --press: rgba(18, 21, 34, 0.09);
+    --rim: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+
+    --ink: #12151F;
+    --ink-2: #3D4358;
+    --silk: #646C85;
+    --faint: #767E96;
+
+    --line: #DDE1EC;
+    --line-soft: #E9ECF4;
+    --line-strong: #C3C9DA;
+
+    --accent: #6D48F0;
+    --accent-hi: #5A33E0;
+    --accent-lo: #4A28C4;
+    --accent-text: #5A33E0;
+    --accent-ink: #FFFFFF;
+    --accent-tint: rgba(109, 72, 240, 0.10);
+    --accent-line: rgba(109, 72, 240, 0.38);
+    --accent-glow: 0 0 0 1px rgba(109, 72, 240, 0.4), 0 8px 24px -8px rgba(109, 72, 240, 0.55);
+    --ring: 0 0 0 2px var(--bg-1), 0 0 0 4px var(--accent-line);
+
+    --ok: #05754C;
+    --warn: #8A5600;
+    --bad: #C22A1D;
+    --info: #1D4FD8;
+    --ok-tint: rgba(5, 117, 76, 0.12);
+    --warn-tint: rgba(138, 86, 0, 0.12);
+    --bad-tint: rgba(194, 42, 29, 0.10);
+    --info-tint: rgba(29, 79, 216, 0.10);
+
+    --m-get: #05754C;
+    --m-post: #8A5600;
+    --m-put: #1D4FD8;
+    --m-patch: #0B6076;
+    --m-delete: #C22A1D;
+    --m-other: #646C85;
+
+    --var: #5A33E0;
+    --var-bg: rgba(109, 72, 240, 0.12);
+    --var-line: rgba(109, 72, 240, 0.30);
+
+    --syn-key: #12151F;
+    --syn-str: #08643E;
+    --syn-num: #96430A;
+    --syn-lit: #6D28D9;
+    --punc: #767E96;
+
+    --selection: rgba(109, 72, 240, 0.22);
+    --backdrop: rgba(18, 21, 34, 0.38);
+
+    --shadow-1: 0 1px 2px rgba(18, 21, 34, 0.07);
+    --shadow-2: 0 2px 6px -1px rgba(18, 21, 34, 0.08), 0 8px 20px -8px rgba(18, 21, 34, 0.14);
+    --shadow-pop:
+      0 0 0 1px rgba(18, 21, 34, 0.06),
+      0 2px 6px -2px rgba(18, 21, 34, 0.1),
+      0 20px 48px -16px rgba(18, 21, 34, 0.3);
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg-0: #EDEFF6;
+  --bg-1: #F7F8FC;
+  --bg-2: #FFFFFF;
+  --bg-3: #FFFFFF;
+  --well: #FFFFFF;
+  --hover: rgba(18, 21, 34, 0.05);
+  --press: rgba(18, 21, 34, 0.09);
+  --rim: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+
+  --ink: #12151F;
+  --ink-2: #3D4358;
+  --silk: #646C85;
+  --faint: #767E96;
+
+  --line: #DDE1EC;
+  --line-soft: #E9ECF4;
+  --line-strong: #C3C9DA;
+
+  --accent: #6D48F0;
+  --accent-hi: #5A33E0;
+  --accent-lo: #4A28C4;
+  --accent-text: #5A33E0;
+  --accent-ink: #FFFFFF;
+  --accent-tint: rgba(109, 72, 240, 0.10);
+  --accent-line: rgba(109, 72, 240, 0.38);
+  --accent-glow: 0 0 0 1px rgba(109, 72, 240, 0.4), 0 8px 24px -8px rgba(109, 72, 240, 0.55);
+  --ring: 0 0 0 2px var(--bg-1), 0 0 0 4px var(--accent-line);
+
+  --ok: #05754C;
+  --warn: #8A5600;
+  --bad: #C22A1D;
+  --info: #1D4FD8;
+  --ok-tint: rgba(5, 117, 76, 0.12);
+  --warn-tint: rgba(138, 86, 0, 0.12);
+  --bad-tint: rgba(194, 42, 29, 0.10);
+  --info-tint: rgba(29, 79, 216, 0.10);
+
+  --m-get: #05754C;
+  --m-post: #8A5600;
+  --m-put: #1D4FD8;
+  --m-patch: #0B6076;
+  --m-delete: #C22A1D;
+  --m-other: #646C85;
+
+  --var: #5A33E0;
+  --var-bg: rgba(109, 72, 240, 0.12);
+  --var-line: rgba(109, 72, 240, 0.30);
+
+  --syn-key: #12151F;
+  --syn-str: #08643E;
+  --syn-num: #96430A;
+  --syn-lit: #6D28D9;
+  --punc: #767E96;
+
+  --selection: rgba(109, 72, 240, 0.22);
+  --backdrop: rgba(18, 21, 34, 0.38);
+
+  --shadow-1: 0 1px 2px rgba(18, 21, 34, 0.07);
+  --shadow-2: 0 2px 6px -1px rgba(18, 21, 34, 0.08), 0 8px 20px -8px rgba(18, 21, 34, 0.14);
+  --shadow-pop:
+    0 0 0 1px rgba(18, 21, 34, 0.06),
+    0 2px 6px -2px rgba(18, 21, 34, 0.1),
+    0 20px 48px -16px rgba(18, 21, 34, 0.3);
+}

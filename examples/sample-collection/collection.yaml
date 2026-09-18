@@ -1,0 +1,8 @@
+name: Sample API
+version: 1
+headers:
+  - name: Accept
+    value: application/json
+    enabled: true
+auth:
+  type: none

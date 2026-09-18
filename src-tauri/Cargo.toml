@@ -1,0 +1,76 @@
+[package]
+name = "volt"
+version = "0.1.0"
+description = "Git-native, open source API client"
+license = "MIT"
+repository = "https://github.com/mertgundoganx/volt"
+edition = "2021"
+rust-version = "1.88"
+# `volt-run` is a second binary, so a bare `cargo run` — which is what
+# `tauri dev` issues — would not know which one is meant.
+default-run = "volt"
+
+[lib]
+name = "volt_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-store = "2"
+# Updating from a GitHub release. `process` is only here for the relaunch that
+# follows an install.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# A maintained fork of the deprecated serde_yaml, byte-identical in output.
+serde_yaml_ng = "0.10"
+# 0.13 renamed the TLS feature and split `form` (used for urlencoded bodies) out.
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "gzip", "brotli", "json", "stream", "multipart", "form", "cookies", "socks", "http2"] }
+tokio = { version = "1", features = ["full"] }
+thiserror = "2"
+base64 = "0.23"
+url = "2"
+# The OS random source, for anything that has to be unguessable: the PKCE
+# verifier, the OAuth state, the NTLM client challenge. Already in the tree
+# through rustls, so it costs nothing in the binary.
+getrandom = "0.4"
+# RustCrypto, for AWS SigV4 signing and Digest auth. Small, and the
+# alternative is hand-rolling a hash, which is how you get a subtle one wrong.
+sha2 = "0.11"
+hmac = "0.13"
+md-5 = "0.11"
+# NTLM needs MD4 for the NT hash. It is broken by design; it is also the only
+# thing that hash can be, so the crate says "insecure" and so does the module.
+md4 = "0.11"
+# WebSocket. rustls to match reqwest, so there is one TLS stack in the binary.
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+# Dynamic gRPC: compile a .proto at runtime and build messages from JSON,
+# the way grpcurl does. No code generation, because the user brings the file.
+# gRPC streaming, trailers and reflection need HTTP/2 itself: reqwest hands
+# back a body, not the frames. Both crates are already in the tree through
+# reqwest, so naming them here costs nothing in the binary.
+h2 = "0.4"
+http = "1"
+bytes = "1"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
+protox = "0.9"
+prost-reflect = { version = "0.16", features = ["serde"] }
+prost = "0.14"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+
+[[bin]]
+name = "volt-run"
+path = "src/bin/volt-run.rs"

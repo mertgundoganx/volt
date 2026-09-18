@@ -1,0 +1,16 @@
+# Normalise line endings. A collection is YAML that people read in a pull
+# request, so a Windows checkout must not turn every file into a diff.
+* text=auto eol=lf
+
+# Binary, and never to be touched.
+*.png binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary
+*.msi binary
+*.exe binary
+
+# Generated and noisy in a review, but committed on purpose.
+pnpm-lock.yaml -diff linguist-generated
+src-tauri/Cargo.lock -diff linguist-generated

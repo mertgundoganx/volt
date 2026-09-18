@@ -1,0 +1,170 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  # So a release can be rehearsed without pushing a tag.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build, e.g. v0.1.0'
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The tag is the version people download, so it has to agree with the three
+  # manifests before anything is built. A `v0.2.0` tag that produces a
+  # `0.1.0` installer is the classic way to ship the wrong thing.
+  check:
+    name: Check the version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: version
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          version="${tag#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          fail=0
+          check() {
+            if [ "$2" != "$version" ]; then
+              echo "::error::$1 says $2, the tag says $version"
+              fail=1
+            fi
+          }
+          check "src-tauri/tauri.conf.json" "$(jq -r .version src-tauri/tauri.conf.json)"
+          check "package.json"              "$(jq -r .version package.json)"
+          check "src-tauri/Cargo.toml"      "$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -1)"
+          exit $fail
+
+  # Nothing gets published that would not have passed CI. The bundle step below
+  # compiles everything anyway; this is here for the tests, which it does not run.
+  verify:
+    name: Test before shipping
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            build-essential
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  bundle:
+    name: ${{ matrix.label }}
+    needs: [check, verify]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS (Apple Silicon)
+            os: macos-latest
+            args: --target aarch64-apple-darwin
+            rust-targets: aarch64-apple-darwin
+          - label: macOS (Intel)
+            os: macos-latest
+            args: --target x86_64-apple-darwin
+            rust-targets: x86_64-apple-darwin
+          # Deliberately not the newest image: an AppImage built against a newer
+          # glibc will not start on the distributions people are actually running.
+          - label: Linux
+            os: ubuntu-22.04
+            args: ''
+            rust-targets: ''
+          - label: Windows
+            os: windows-latest
+            args: ''
+            rust-targets: ''
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            build-essential
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.label }}
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # `beforeBuildCommand` in tauri.conf.json runs `pnpm generate`, so the SPA
+      # is built as part of this rather than in a step of its own.
+      #
+      # Nothing here is code-signed: there are no certificates in this
+      # repository. Windows SmartScreen and macOS Gatekeeper will say so to
+      # whoever downloads it. Signing means adding the secrets Tauri documents
+      # and the matching inputs below — a deliberate decision, not an oversight.
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The updater refuses an unsigned release, so these two are required
+          # once `createUpdaterArtifacts` is on. They sign `latest.json` and the
+          # bundles; they are not code-signing certificates and do nothing about
+          # SmartScreen or Gatekeeper.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v${{ needs.check.outputs.version }}
+          releaseName: volt ${{ needs.check.outputs.version }}
+          releaseBody: |
+            Installers for macOS, Linux and Windows are attached below.
+
+            These builds are not code-signed, so your system will warn you the
+            first time you open one.
+
+            volt checks for updates on start, and offers this release from
+            Settings. That check can be turned off there.
+          # Draft, so the notes can be written and the artefacts checked before
+          # anyone can download them.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}

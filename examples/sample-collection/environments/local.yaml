@@ -1,0 +1,7 @@
+name: local
+vars:
+  - name: baseUrl
+    value: https://jsonplaceholder.typicode.com
+  - name: token
+    value: ''
+    secret: true

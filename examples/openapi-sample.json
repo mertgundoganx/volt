@@ -1,0 +1,47 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Shop API", "version": "2.0" },
+  "servers": [{ "url": "https://api.shop.test/{version}" }, { "url": "https://staging.shop.test" }],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer" },
+      "apiKey": { "type": "apiKey", "in": "header", "name": "X-Shop-Key" }
+    },
+    "schemas": {
+      "Order": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "total": { "type": "number" },
+          "status": { "type": "string", "enum": ["paid", "pending"] },
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Item" } }
+        }
+      },
+      "Item": { "type": "object", "properties": { "sku": { "type": "string", "example": "A-1" }, "qty": { "type": "integer" } } }
+    }
+  },
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/orders": {
+      "get": {
+        "summary": "List orders",
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 2 } },
+          { "name": "X-Trace", "in": "header", "required": true, "schema": { "type": "string" } }
+        ]
+      },
+      "post": {
+        "operationId": "createOrder",
+        "description": "Creates one.",
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Order" } } }
+        }
+      }
+    },
+    "/orders/{orderId}": {
+      "parameters": [{ "name": "orderId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "delete": { "summary": "Cancel an order", "deprecated": true, "security": [{ "apiKey": [] }] }
+    },
+    "/health": { "get": { "summary": "Health" } }
+  }
+}
