@@ -163,6 +163,10 @@ jobs:
 
             volt checks for updates on start, and offers this release from
             Settings. That check can be turned off there.
+
+            If you are on 0.1.0 or 0.2.0: the "Install and restart" key in those
+            builds did nothing (fixed in 0.3.0). Install this one by hand, once;
+            from here on the key works.
           # Draft, so the notes can be written and the artefacts checked before
           # anyone can download them.
           releaseDraft: true

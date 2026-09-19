@@ -47,6 +47,10 @@ const store = useCollectionStore()
 
     <span class="spacer" />
 
+    <button type="button" class="key" aria-label="Keyboard shortcuts" title="Every shortcut — or press ?" @click="store.shortcutsSheet = true">
+      <UiIcon name="keyboard" :size="18" />
+      <span>Keys</span>
+    </button>
     <button type="button" class="key" aria-label="Settings" @click="emit('openSettings')">
       <UiIcon name="sliders" :size="18" />
       <span>Settings</span>

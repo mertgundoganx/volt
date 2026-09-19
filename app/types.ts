@@ -283,6 +283,15 @@ export interface Cookie {
   expires: number | null
 }
 
+/** Mirrors collection::SearchHit in src-tauri/src/collection.rs. */
+export interface SearchHit {
+  id: string
+  name: string
+  method: string
+  /** "URL", "param limit", "header X-Api-Key", "body", "docs". */
+  foundIn: string
+}
+
 /** Mirrors examples::Example in src-tauri/src/examples.rs. */
 export interface Example {
   name: string

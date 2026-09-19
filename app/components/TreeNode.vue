@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type { Node } from '~/types'
+import { isCurl } from '~/utils/curl'
+import { parentOf } from '~/composables/useTreeMenu'
 
 const props = defineProps<{ nodes: Node[]; depth: number }>()
 const store = useCollectionStore()
@@ -13,11 +15,18 @@ const short = (method: string) => SHORT[method] ?? method
 
 const indent = computed(() => `${12 + props.depth * 16}px`)
 
-function onDrop(targetId: string) {
+function onDrop(targetId: string, event: DragEvent, isFolder: boolean) {
   const from = dragId.value
   const target = dropTarget.value
   end()
-  if (from && target?.id === targetId) store.drop(from, targetId, target.position)
+  if (from) {
+    if (target?.id === targetId) store.drop(from, targetId, target.position)
+    return
+  }
+  // Not one of ours: a curl command dropped from elsewhere becomes a request
+  // in the folder it landed on, or beside the request it landed on.
+  const text = event.dataTransfer?.getData('text/plain') ?? ''
+  if (isCurl(text)) void store.importCurl(text, { mode: 'create', parent: isFolder ? targetId : parentOf(targetId) })
 }
 
 function toggle(id: string) {
@@ -64,7 +73,7 @@ function requestCount(node: Node) {
           @dragstart.stop="start($event, node.id)"
           @dragend="end()"
           @dragover="over($event, node.id, true)"
-          @drop.prevent="onDrop(node.id)"
+          @drop.prevent.stop="onDrop(node.id, $event, true)"
         >
           <UiIcon :name="collapsed.has(node.id) ? 'chevron-right' : 'chevron-down'" :size="12" class="chev" />
           <UiIcon :name="collapsed.has(node.id) ? 'folder' : 'folder-open'" :size="14" class="folder-glyph" />
@@ -111,7 +120,7 @@ function requestCount(node: Node) {
         @dragstart.stop="start($event, node.id)"
         @dragend="end()"
         @dragover="over($event, node.id, false)"
-        @drop.prevent="onDrop(node.id)"
+        @drop.prevent.stop="onDrop(node.id, $event, false)"
       >
         <span class="method" :data-method="node.method">{{ short(node.method) }}</span>
 

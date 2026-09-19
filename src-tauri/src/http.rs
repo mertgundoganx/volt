@@ -200,8 +200,61 @@ pub struct PlanContext<'a> {
 
 pub fn plan(request: &Request, ctx: &PlanContext<'_>) -> Result<Plan> {
     let mut missing: Vec<String> = Vec::new();
+
+    // --- Body ---------------------------------------------------------------
+    // First, so that `$body` — the body as it will be sent — is a variable the
+    // URL, the query and the headers can hand to a helper; a signature over
+    // the payload is the usual reason for one. The body itself cannot see
+    // `$body`, which is what keeps it from being defined in terms of itself.
+    let body = {
+        let mut resolve = |input: &str| -> String {
+            let out = vars::interpolate(input, ctx.vars);
+            missing.extend(out.missing);
+            out.value
+        };
+    let fields = |fields: &[KeyValue], resolve: &mut dyn FnMut(&str) -> String| -> Vec<(String, String)> {
+        fields.iter().filter(|f| f.enabled).map(|f| (resolve(&f.name), resolve(&f.value))).collect()
+    };
+        match &request.body {
+        Body::None => PlanBody::None,
+        Body::Text { content } => PlanBody::Text { content: resolve(content), default_type: "text/plain" },
+        Body::Json { content } => PlanBody::Text { content: resolve(content), default_type: "application/json" },
+        Body::Xml { content } => PlanBody::Text { content: resolve(content), default_type: "application/xml" },
+        Body::UrlEncoded { fields: f } => PlanBody::UrlEncoded(fields(f, &mut resolve)),
+        Body::Form { fields: f } => PlanBody::Multipart(
+            f.iter()
+                .filter(|field| field.enabled)
+                .map(|field| Part { name: resolve(&field.name), value: resolve(&field.value), file: field.file })
+                .filter(|part| !part.name.is_empty())
+                .collect(),
+        ),
+        Body::Binary { path } => PlanBody::File { path: ctx.root.join(resolve(path)) },
+        // On the wire GraphQL is a JSON POST; the shape is the specification's,
+        // and invalid variables travel as written rather than being repaired.
+        // gRPC does not go out through `execute`; it has its own transport and
+        // its own command. A plan is still built, for the URL and the headers.
+        Body::Grpc { .. } => PlanBody::None,
+        Body::GraphQl { query, variables } => {
+            let variables = resolve(variables);
+            let variables: serde_json::Value = if variables.trim().is_empty() {
+                serde_json::json!({})
+            } else {
+                serde_json::from_str(variables.trim()).unwrap_or(serde_json::Value::Null)
+            };
+            let payload = serde_json::json!({ "query": resolve(query), "variables": variables });
+            PlanBody::Text {
+                content: serde_json::to_string(&payload).unwrap_or_default(),
+                default_type: "application/json",
+            }
+        }
+        }
+    };
+    let mut vars = ctx.vars.clone();
+    if let PlanBody::Text { content, .. } = &body {
+        vars.insert("$body".into(), content.clone());
+    }
     let mut resolve = |input: &str| -> String {
-        let out = vars::interpolate(input, ctx.vars);
+        let out = vars::interpolate(input, &vars);
         missing.extend(out.missing);
         out.value
     };
@@ -289,44 +342,6 @@ pub fn plan(request: &Request, ctx: &PlanContext<'_>) -> Result<Plan> {
 
     let url = join_query(&raw_url, &query, ctx.lenient_url)?;
 
-    // --- Body ---------------------------------------------------------------
-    let fields = |fields: &[KeyValue], resolve: &mut dyn FnMut(&str) -> String| -> Vec<(String, String)> {
-        fields.iter().filter(|f| f.enabled).map(|f| (resolve(&f.name), resolve(&f.value))).collect()
-    };
-    let body = match &request.body {
-        Body::None => PlanBody::None,
-        Body::Text { content } => PlanBody::Text { content: resolve(content), default_type: "text/plain" },
-        Body::Json { content } => PlanBody::Text { content: resolve(content), default_type: "application/json" },
-        Body::Xml { content } => PlanBody::Text { content: resolve(content), default_type: "application/xml" },
-        Body::UrlEncoded { fields: f } => PlanBody::UrlEncoded(fields(f, &mut resolve)),
-        Body::Form { fields: f } => PlanBody::Multipart(
-            f.iter()
-                .filter(|field| field.enabled)
-                .map(|field| Part { name: resolve(&field.name), value: resolve(&field.value), file: field.file })
-                .filter(|part| !part.name.is_empty())
-                .collect(),
-        ),
-        Body::Binary { path } => PlanBody::File { path: ctx.root.join(resolve(path)) },
-        // On the wire GraphQL is a JSON POST; the shape is the specification's,
-        // and invalid variables travel as written rather than being repaired.
-        // gRPC does not go out through `execute`; it has its own transport and
-        // its own command. A plan is still built, for the URL and the headers.
-        Body::Grpc { .. } => PlanBody::None,
-        Body::GraphQl { query, variables } => {
-            let variables = resolve(variables);
-            let variables: serde_json::Value = if variables.trim().is_empty() {
-                serde_json::json!({})
-            } else {
-                serde_json::from_str(variables.trim()).unwrap_or(serde_json::Value::Null)
-            };
-            let payload = serde_json::json!({ "query": resolve(query), "variables": variables });
-            PlanBody::Text {
-                content: serde_json::to_string(&payload).unwrap_or_default(),
-                default_type: "application/json",
-            }
-        }
-    };
-
     missing.sort();
     missing.dedup();
     Ok(Plan { method, url, headers, basic, digest, ntlm, aws, body, api_key_header, missing })
@@ -376,6 +391,23 @@ pub(crate) fn urlencoded_body(pairs: &[(String, String)]) -> String {
         .collect::<Vec<_>>()
         .join("&")
 }
+
+/// `execute`, unless `cancel` fires first. Dropping the future drops the
+/// connection with it, so a cancelled send stops sending rather than finishing
+/// in the background and writing its answer into a tab that gave up on it.
+pub async fn execute_or_cancel(
+    request: &Request,
+    ctx: &ExecContext<'_>,
+    cancel: tokio::sync::oneshot::Receiver<()>,
+) -> Result<HttpResponse> {
+    tokio::select! {
+        result = execute(request, ctx) => result,
+        _ = cancel => Err(Error::Http(CANCELLED.into())),
+    }
+}
+
+/// The message a cancelled send fails with; the UI reads it to stay quiet.
+pub const CANCELLED: &str = "cancelled";
 
 pub async fn execute(request: &Request, ctx: &ExecContext<'_>) -> Result<HttpResponse> {
     let plan = plan(
@@ -1003,5 +1035,60 @@ mod tests {
         assert!(response.body.contains("\"q\": \"volt\""), "{}", response.body);
         assert!(response.body.contains("Bearer tok123"), "{}", response.body);
         assert!(response.body.contains("X-Probe"), "{}", response.body);
+    }
+    #[test]
+    fn a_header_can_sign_the_body_but_the_body_cannot_sign_itself() {
+        let mut request = Request { name: "Order".into(), method: "POST".into(), url: "https://api.test/orders".into(), ..Default::default() };
+        request.body = Body::Json { content: r#"{"amount": {{amount}}}"#.into() };
+        request.headers.push(KeyValue { name: "X-Signature".into(), value: "{{$hmacSha256(secret, $body)}}".into(), enabled: true, ..Default::default() });
+        let vars = HashMap::from([("secret".to_string(), "key".to_string()), ("amount".to_string(), "42".to_string())]);
+        let scopes = crate::collection::Scopes::default();
+        let ctx = PlanContext { root: Path::new("."), vars: &vars, scopes: &scopes, lenient_url: false };
+        let planned = plan(&request, &ctx).unwrap();
+
+        let signature = planned.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case("x-signature")).map(|(_, v)| v.clone()).unwrap();
+        // HMAC over the body *after* its own variables were resolved.
+        let expected = {
+            use hmac::{KeyInit as _, Mac};
+            use sha2::Sha256;
+            let mut mac = hmac::Hmac::<Sha256>::new_from_slice(b"key").unwrap();
+            mac.update(br#"{"amount": 42}"#);
+            mac.finalize().into_bytes().iter().map(|b| format!("{b:02x}")).collect::<String>()
+        };
+        assert_eq!(signature, expected);
+        assert!(planned.missing.is_empty(), "{:?}", planned.missing);
+
+        request.body = Body::Json { content: "{{$sha256($body)}}".into() };
+        let planned = plan(&request, &ctx).unwrap();
+        assert_eq!(planned.missing, vec!["$body".to_string()], "no body can be defined by its own hash");
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_send_can_be_cancelled_while_the_server_says_nothing() {
+        // A server that accepts and then never answers.
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (_socket, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        });
+
+        let request = Request { name: "Slow".into(), method: "GET".into(), url: format!("http://127.0.0.1:{port}/"), ..Default::default() };
+        let vars = HashMap::new();
+        let scopes = crate::collection::Scopes::default();
+        let options = ExecOptions { timeout_ms: 20_000, ..Default::default() };
+        let ctx = ExecContext { root: Path::new("."), vars: &vars, scopes: &scopes, options: &options, cookies: None };
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            let _ = tx.send(());
+        });
+        let started = std::time::Instant::now();
+        let out = execute_or_cancel(&request, &ctx, rx).await;
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "cancel did not cut it short");
+        match out {
+            Err(Error::Http(message)) => assert_eq!(message, CANCELLED),
+            other => panic!("expected a cancellation, got {other:?}"),
+        }
     }
 }

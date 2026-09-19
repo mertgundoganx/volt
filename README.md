@@ -38,6 +38,56 @@ On first launch volt opens a collection of its own, kept under your documents
 folder, so the first thing you can do is make a request. Opening a folder
 inside a repository replaces it whenever you are ready.
 
+## Signing without a script
+
+What a Postman pre-request script is usually for — a signature, an
+encoding — is a helper here, and a request that uses one still reads as a
+request in its YAML:
+
+```yaml
+headers:
+  - name: X-Signature
+    value: "{{$hmacSha256(apiSecret, $body)}}"
+```
+
+`$body` is the body as it will be sent, with its own variables already
+filled in. Arguments are variable names or `"quoted"` literals. The set is
+fixed: `$base64`, `$sha256`, `$md5`, `$hmacSha256`, `$hmacSha256Base64`,
+`$urlencode`, `$upper`, `$lower`, beside `$timestamp`, `$isoTimestamp`,
+`$guid` (also `$uuid`) and `$randomInt`. A helper that cannot be computed —
+an argument nobody defined, a call nobody knows — stays visible in the
+request and is named in the warning, the way a missing variable is.
+
+Run a single folder from its menu (**Run this folder…**), and paste a block
+of `name=value` lines into an environment with **Bulk edit** — `# secret`
+at the end of a line keeps that value out of the YAML.
+
+## Small things that add up
+
+The URL bar shows the query and fills the Params table when you paste one.
+Open tabs come back after a restart, unsaved edits included. A send can be
+cancelled from the same key. A tab shows the status of its last send. Errors
+say what happened in words — "Could not connect to api.test: nothing is
+listening there" — with the raw message underneath, and a refused
+certificate offers to send without verifying, for that request only. An
+undefined `{{name}}` in the warning is a link into the environment editor.
+Search looks inside requests — headers, bodies, notes — not only at names.
+Tabs drag, and a right-click closes the others. A curl command dropped on a
+folder becomes a request there. A request can be copied, or moved, to
+another collection from its menu. Large JSON folds. Shortcuts are one key
+away (?) and a click away in Settings.
+
+## Reading a response
+
+Pretty, Tree and Raw. In the tree, every row shows its path and a **Capture**
+key that adds `$.data.token` to the request's captures, named after the field
+— the next send fills it. An HTML response gets a **Preview**, rendered in a
+sandbox that allows nothing. The diff key compares this send with the
+previous one, line by line.
+
+Typing `{{` anywhere a variable can go lists the names that exist — yours,
+the collection's, and the ones volt supplies.
+
 ## Coming from Postman
 
 Most of it is where you expect it. What differs, differs for a reason:
@@ -218,6 +268,10 @@ It is not hidden inside an auth object: requests use `{{token}}` like anything
 else, and you can see it, reuse it and share it as a name.
 
 ### Importing
+
+**Drop a file on the window** to import it: a Postman, Insomnia or OpenAPI
+export becomes a collection beside your personal one and opens; a folder
+opens as it is.
 
 **Import…** converts a Postman (Collection v2.0 / v2.1), Insomnia (v4 JSON or
 v5 YAML) or OpenAPI/Swagger (3.x or 2.0, JSON or YAML) file into a new
@@ -427,7 +481,7 @@ documentation as one HTML file; sync through the collection's own git
 repository; workspaces; and monitors.
 
 Besides the variables you define, `{{$timestamp}}`, `{{$isoTimestamp}}`,
-`{{$guid}}` and `{{$randomInt}}` are always available. Each is worked out once
+`{{$guid}}` (or `{{$uuid}}`) and `{{$randomInt}}` are always available. Each is worked out once
 per send, so two uses in one request agree with each other.
 
 Renaming changes the `name:` in the file rather than the filename, so a request

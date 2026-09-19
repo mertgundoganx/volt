@@ -190,6 +190,17 @@ async function save() {
       </div>
     </section>
 
+    <section class="group" aria-labelledby="s-keys">
+      <h3 id="s-keys" class="silk">Keyboard</h3>
+      <div class="setting">
+        <div class="text">
+          <span class="name">Shortcuts</span>
+          <span class="desc">Send with {{ modKey }}+Enter, save with {{ modKey }}+S, jump to a request with {{ modKey }}+P. The full list is one key away: ?</span>
+        </div>
+        <button type="button" class="btn btn-sm" @click="emit('close'); store.shortcutsSheet = true">Show all</button>
+      </div>
+    </section>
+
     <section class="group" aria-labelledby="s-updates">
       <h3 id="s-updates" class="silk">Updates</h3>
 

@@ -155,6 +155,13 @@ not an oversight.
 Installed copies of volt check GitHub for a newer release on start and offer it
 from Settings. Three things have to line up for that to work.
 
+**0. One installer format on Windows.** `bundle.targets` names `nsis` and
+not `msi`. With both built, `latest.json` pointed the updater at the MSI while
+people had installed the NSIS `-setup.exe`, and an update would have put a
+second, per-machine copy beside the first, asking for administrator rights on
+the way. The NSIS installer updates the per-user install in place and asks
+for nothing.
+
 **1. The endpoint.** `plugins.updater.endpoints` in `src-tauri/tauri.conf.json`
 points at this repository's releases. A fork has to change it to its own, or
 its builds will go on offering this project's releases to people running a
@@ -249,6 +256,52 @@ More stub rules learned the hard way:
   (`section.request [role="tab"]`) or match on the exact text.
 - `UiSegmented` renders `role="radio"`, not `role="tab"`. A test that picks a
   segment has to say so.
+
+## The update, end to end
+
+`tests/e2e/update.mjs` is the updater with nothing stubbed: a debug build that
+calls itself an older version is pointed at a local `latest.json` naming a
+published installer and its signature, driven to Settings → Install and
+restart, and the per-user install in `%LOCALAPPDATA%\Volt` is expected to
+change version. It needs the same driver setup as the test below, a
+`volt` installed from the NSIS installer of an older release, and a build
+made with a config override:
+
+```bash
+# override.json: {"version":"0.1.9","plugins":{"updater":{"endpoints":["http://127.0.0.1:8765/latest.json"],"dangerousInsecureTransportProtocol":true}}}
+pnpm tauri build --debug --no-bundle --config override.json
+EDGEDRIVER=path/to/msedgedriver.exe node tests/e2e/update.mjs
+```
+
+Two things it taught: keep the WebDriver session open until the version on
+disk changes, because closing it kills the app mid-download; and see the
+`markRaw` note in ARCHITECTURE — the Install key was broken from 0.1.0 to
+0.2.0 and this test is what found it. Run it before a release that touches
+the updater, the store, or the settings dialog.
+
+## The real thing, end to end
+
+The Playwright suites replace the Rust side with a stub, and the Rust tests
+never see the UI. One test does neither: `tests/e2e/drive.mjs` drives the built
+`volt.exe` over WebDriver, through `tauri-driver`, opening a throwaway
+collection, making a request from the sidebar, sending it across the real
+network and reading the status back off the screen. Run it when a change
+touches the seam between the two — IPC payloads, the URL bar, Send.
+
+```bash
+cargo install tauri-driver --locked
+# msedgedriver has to match the installed WebView2 (see the version under
+# "C:Program Files (x86)MicrosoftEdgeWebViewApplication"):
+#   https://msedgedriver.microsoft.com/<version>/edgedriver_win64.zip
+pnpm tauri build --debug --no-bundle     # src-tauri/target/debug/volt.exe with the SPA embedded
+EDGEDRIVER=path/to/msedgedriver.exe node tests/e2e/drive.mjs
+```
+
+The test hands volt a throwaway collection as an argument, which is what
+`volt <folder>` does for anyone: `startup_collection` opens it instead of
+the last one, so the test never touches a collection of yours. (A WebDriver
+passes every argument on as a `--switch`, which is why leading dashes are
+dropped before the path is checked.) It needs no package beyond Node itself.
 
 ## The command line
 

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type { MenuItem } from '~/utils/ui'
+import { isCurl } from '~/utils/curl'
+import type { SearchHit } from '~/types'
 
 const store = useCollectionStore()
 const { creatingFolder, startCreatingFolder } = useTreeMenu()
@@ -11,6 +13,28 @@ const creatingAtRoot = computed(() => creatingFolder.value?.parent === null)
 const filter = ref('')
 const filterInput = ref<HTMLInputElement>()
 const hits = computed(() => store.searchRequests(filter.value))
+
+// What is *inside* requests — URLs, headers, bodies, notes — comes from Rust,
+// a moment after the names, so typing stays quick.
+const inside = ref<SearchHit[]>([])
+let insideTimer: ReturnType<typeof setTimeout> | undefined
+watch(filter, (query) => {
+  clearTimeout(insideTimer)
+  inside.value = []
+  if (!query.trim() || !store.root) return
+  insideTimer = setTimeout(async () => {
+    const found = await store.searchContents(query)
+    if (filter.value === query) inside.value = found ?? []
+  }, 250)
+})
+/** Contents hits that the name search did not already list. */
+const insideOnly = computed(() => inside.value.filter((hit) => !hits.value.some((named) => named.id === hit.id)))
+
+/** A curl command dropped on the empty part of the tree lands at the root. */
+function onRootDrop(event: DragEvent) {
+  const text = event.dataTransfer?.getData('text/plain') ?? ''
+  if (isCurl(text)) void store.importCurl(text, { mode: 'create', parent: null })
+}
 
 useShortcut('/', 'Search the collection', () => {
   store.sidebarTab = 'tree'
@@ -47,7 +71,10 @@ function onCollectionMenu(key: string) {
   else if (key === 'settings') store.scopeDialog = { id: null, title: store.collection?.meta.name ?? 'Collection' }
   else if (key === 'cookies') store.cookiesDialog = true
   else if (key === 'bin') store.trashDialog = true
-  else if (key === 'run') store.runnerDialog = true
+  else if (key === 'run') {
+    store.runnerTarget = null
+    store.runnerDialog = true
+  }
   else if (key === 'oauth') store.oauthDialog = true
   else if (key === 'sync') store.syncDialog = true
   else if (key === 'workspaces') store.workspacesDialog = true
@@ -108,10 +135,20 @@ function onCollectionMenu(key: string) {
             <span class="hit-id mono">{{ hit.id }}</span>
           </span>
         </button>
-        <p v-if="!hits.length" class="none">Nothing matches</p>
+        <template v-if="insideOnly.length">
+          <p class="silk group-label">In contents</p>
+          <button v-for="hit in insideOnly" :key="hit.id" type="button" class="hit" @click="store.select(hit.id)">
+            <span class="method" :data-method="hit.method">{{ hit.method }}</span>
+            <span class="hit-text">
+              <span class="hit-name">{{ hit.name }}</span>
+              <span class="hit-id mono">{{ hit.foundIn }} · {{ hit.id }}</span>
+            </span>
+          </button>
+        </template>
+        <p v-if="!hits.length && !insideOnly.length" class="none">Nothing matches</p>
       </nav>
 
-      <nav v-else class="scroll" aria-label="Requests">
+      <nav v-else class="scroll" aria-label="Requests" @dragover.prevent @drop.prevent="onRootDrop">
         <NewFolderInput v-if="creatingAtRoot" :parent="null" :depth="0" />
         <TreeNode v-if="store.tree.length" :nodes="store.tree" :depth="0" />
 
@@ -204,4 +241,5 @@ function onCollectionMenu(key: string) {
 .hit-name { font-size: var(--t-small); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hit-id { color: var(--faint); font-size: var(--t-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .none { margin: 0; padding: var(--s-5) var(--s-4); color: var(--silk); font-size: var(--t-small); text-align: center; }
+.group-label { margin: var(--s-3) 0 4px; padding: 0 var(--s-4); }
 </style>

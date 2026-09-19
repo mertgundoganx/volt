@@ -2,7 +2,8 @@
 const store = useCollectionStore()
 const emit = defineEmits<{ close: [] }>()
 
-const target = ref('')
+// Opened from a folder's menu, the runner starts on that folder.
+const target = ref(store.runnerTarget ?? '')
 const stopOnFailure = ref(false)
 
 const folders = computed(() => [{ value: '', label: 'The whole collection' }, ...store.folders.map((folder) => ({ value: folder.id, label: folder.name }))])

@@ -13,6 +13,7 @@ export const ICONS = {
   // A request list: a short method stub before each line.
   requests: '<path d="M2.5 4.25h2.25M7 4.25h6.5M2.5 8h2.25M7 8h6.5M2.5 11.75h2.25M7 11.75h6.5"/>',
   globe: '<circle cx="8" cy="8" r="6.25"/><path d="M1.75 8h12.5M8 1.75c2.1 2 2.1 10.5 0 12.5M8 1.75c-2.1 2-2.1 10.5 0 12.5"/>',
+  keyboard: '<rect x="1.75" y="4.25" width="12.5" height="7.5" rx="1.5"/><path d="M4.25 6.75h.5M6.75 6.75h.5M9.25 6.75h.5M11.75 6.75h.5M5 9.25h6"/>',
   send: '<path d="M2.5 8h10M8.5 4l4 4-4 4"/>',
   'chevron-up': '<path d="M4 10l4-4 4 4"/>',
   'chevron-right': '<path d="M6 4l4 4-4 4"/>',

@@ -8,7 +8,8 @@ import type { Comparison, Example } from '~/types'
 
 const store = useCollectionStore()
 const tab = ref<'body' | 'headers' | 'timeline' | 'examples'>('body')
-const view = ref<'pretty' | 'raw'>('pretty')
+type View = 'pretty' | 'tree' | 'raw' | 'preview' | 'diff'
+const view = ref<View>('pretty')
 const wrap = ref(false)
 const copied = ref(false)
 
@@ -21,17 +22,63 @@ const pretty = computed(() => {
   if (!r || r.bodyIsBase64) return { text: '', isJson: false }
   return prettyJson(r.body)
 })
+const contentType = computed(
+  () => res.value?.headers.find((h) => h.name.toLowerCase() === 'content-type')?.value.split(';')[0]?.trim() ?? '',
+)
+
 const shown = computed(() => (view.value === 'pretty' && pretty.value.isJson ? pretty.value.text : (res.value?.body ?? '')))
 const language = computed(() => (view.value === 'pretty' && pretty.value.isJson ? 'json' : 'text'))
+
+const isHtml = computed(() => contentType.value === 'text/html')
+
+/** The ways a body can be looked at: what it is decides which are offered. */
+const viewOptions = computed<{ value: View; label: string }[]>(() => {
+  const out: { value: View; label: string }[] = [{ value: 'pretty', label: 'Pretty' }]
+  if (pretty.value.isJson) out.push({ value: 'tree', label: 'Tree' })
+  if (isHtml.value) out.push({ value: 'preview', label: 'Preview' })
+  out.push({ value: 'raw', label: 'Raw' })
+  return out
+})
+const segmentView = computed({
+  get: () => (view.value === 'diff' ? 'pretty' : view.value),
+  set: (next: View) => (view.value = next),
+})
+
+// A new body may not support the view the last one was in.
+watch([res, () => store.previousResponse], () => {
+  if (view.value === 'tree' && !pretty.value.isJson) view.value = 'pretty'
+  if (view.value === 'preview' && !isHtml.value) view.value = 'pretty'
+  if (view.value === 'diff' && !store.previousResponse) view.value = 'pretty'
+})
+
+/** This send's body as the diff sees it: pretty when it is JSON. */
+const currentText = computed(() => (pretty.value.isJson ? pretty.value.text : (res.value?.body ?? '')))
+
+/** The previous send's body, pretty-printed the same way, for the diff. */
+const previousText = computed(() => {
+  const r = store.previousResponse
+  if (!r || r.bodyIsBase64) return ''
+  return prettyJson(r.body).text
+})
+
+function onCapture(path: string, name: string) {
+  store.addCapture(path, name)
+}
+
+async function copyPath(path: string) {
+  try {
+    await navigator.clipboard.writeText(path)
+    store.notify('Path copied', path)
+  } catch {
+    store.error = 'Could not copy to the clipboard.'
+  }
+}
 
 const redirected = computed(() => {
   const r = res.value
   return !!r && !!r.finalUrl && r.finalUrl !== r.sentUrl
 })
 
-const contentType = computed(
-  () => res.value?.headers.find((h) => h.name.toLowerCase() === 'content-type')?.value.split(';')[0]?.trim() ?? '',
-)
 
 const tabs = computed<TabItem[]>(() => [
   { key: 'body', label: 'Body', meta: res.value?.bodyIsBase64 ? 'binary' : pretty.value.isJson ? 'json' : contentType.value.split('/')[1] || null },
@@ -119,6 +166,30 @@ const timeline = computed(() => {
 const examples = ref<Example[]>([])
 const naming = ref(false)
 const exampleName = ref('')
+
+/**
+ * A name for the example that says which one this is: the status, then the
+ * first thing in the body that reads like a label — a name, a title, an id.
+ */
+function suggestedExampleName() {
+  const r = res.value
+  if (!r) return ''
+  let hint = ''
+  if (pretty.value.isJson) {
+    try {
+      let value: unknown = JSON.parse(r.body)
+      if (Array.isArray(value)) value = value[0]
+      if (value && typeof value === 'object') {
+        const record = value as Record<string, unknown>
+        const key = ['name', 'title', 'email', 'id', 'error', 'message'].find((k) => ['string', 'number'].includes(typeof record[k]))
+        if (key) hint = ` · ${key} ${String(record[key]).slice(0, 24)}`
+      }
+    } catch {
+      // Not the JSON it looked like; the status alone is a fine name.
+    }
+  }
+  return `${r.status} ${r.statusText}${hint}`
+}
 const shownExample = ref<Example | null>(null)
 
 /**
@@ -200,12 +271,24 @@ async function copyBody() {
             <span class="tools-sep" />
             <template v-if="!res.bodyIsBase64">
               <UiSegmented
-                v-if="pretty.isJson"
-                v-model="view"
-                :options="[{ value: 'pretty', label: 'Pretty' }, { value: 'raw', label: 'Raw' }]"
+                v-if="viewOptions.length > 2"
+                v-model="segmentView"
+                :options="viewOptions"
                 label="Body view"
                 size="sm"
               />
+              <button
+                v-if="store.previousResponse"
+                type="button"
+                class="icon-btn quiet sm"
+                :class="{ on: view === 'diff' }"
+                :aria-pressed="view === 'diff'"
+                aria-label="Compare with the previous send"
+                title="Compare with the previous send"
+                @click="view = view === 'diff' ? 'pretty' : 'diff'"
+              >
+                <UiIcon name="diff" :size="14" />
+              </button>
               <button type="button" class="icon-btn quiet sm" :class="{ on: finding }" :aria-pressed="finding" aria-label="Find in body" :title="`Find in body (${modKey}+F)`" @click="finding ? closeFind() : openFind()">
                 <UiIcon name="search" :size="14" />
               </button>
@@ -276,6 +359,9 @@ async function copyBody() {
           <div v-else-if="!res.body" class="blank">
             <p>The response has no body.</p>
           </div>
+          <UiJsonTree v-else-if="view === 'tree'" :text="res.body" @capture="onCapture" @copy="copyPath" />
+          <iframe v-else-if="view === 'preview'" class="preview" sandbox="" :srcdoc="res.body" title="The response, rendered" />
+          <UiDiffView v-else-if="view === 'diff'" :before="previousText" :after="currentText" />
           <UiCodeView v-else :text="shown" :language="language" :wrap="wrap" :find="finding ? query : ''" :current="current" />
         </template>
 
@@ -315,7 +401,7 @@ async function copyBody() {
               <button type="button" class="btn btn-primary btn-sm" :disabled="!exampleName.trim()" @click="keepExample()">Keep</button>
               <button type="button" class="btn btn-quiet btn-sm" @click="naming = false">Cancel</button>
             </div>
-            <button v-else-if="store.activeId" type="button" class="btn btn-sm keep" @click="naming = true; exampleName = `${res.status} ${res.statusText}`">
+            <button v-else-if="store.activeId" type="button" class="btn btn-sm keep" @click="naming = true; exampleName = suggestedExampleName()">
               <UiIcon name="plus" :size="14" />Keep this response as an example
             </button>
 
@@ -482,6 +568,8 @@ async function copyBody() {
 }
 .redirect .mono { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .viewer { flex: 1; min-height: 0; overflow: auto; }
+/* Sandboxed with nothing allowed: no scripts, no forms, no navigation. */
+.preview { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
 
 .blank { display: grid; place-items: center; padding: var(--s-8) var(--s-5); color: var(--silk); font-size: var(--t-small); }
 .nothing { display: grid; gap: var(--s-3); justify-items: center; text-align: center; }

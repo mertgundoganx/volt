@@ -108,6 +108,14 @@ export function useTreeDrag() {
 
   function over(event: DragEvent, id: string, isFolder: boolean) {
     const from = dragId.value
+    // Text from outside — a curl command from a browser or an editor — may
+    // land on a folder and become a request there.
+    if (!from && event.dataTransfer?.types.includes('text/plain')) {
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'copy'
+      dropTarget.value = { id, position: isFolder ? 'inside' : 'after' }
+      return
+    }
     if (!from || !canDrop(from, id)) {
       if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
       return

@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use serde_yaml_ng as yaml;
 
 use crate::error::{Error, Result};
-use crate::model::{Auth, CollectionMeta, Environment, EnvVar, FolderMeta, KeyValue, Request};
+use crate::model::{Auth, Body, Check, CollectionMeta, Environment, EnvVar, FolderMeta, KeyValue, Request};
 use crate::secrets;
 
 pub const COLLECTION_FILE: &str = "collection.yaml";
@@ -129,8 +129,118 @@ pub fn ensure_default(base: &Path) -> Result<PathBuf> {
     if !root.join(COLLECTION_FILE).exists() {
         fs::create_dir_all(&root).map_err(|e| Error::io(path_str(&root), e))?;
         init(&root, DEFAULT_NAME)?;
+        // One request, so the first thing anyone sees is a response rather
+        // than an empty tree. Deleting it is a delete like any other; it is
+        // never put back.
+        let hello = Request {
+            name: "Hello, world".into(),
+            method: "GET".into(),
+            url: "https://jsonplaceholder.typicode.com/todos/1".into(),
+            checks: vec![Check {
+                from: "status".into(),
+                op: crate::checks::Op::Is,
+                value: "200".into(),
+                enabled: true,
+            }],
+            docs: Some(
+                "Press Send. This request is here so the first thing you see is a response — delete it whenever."
+                    .into(),
+            ),
+            ..Default::default()
+        };
+        write_request(&root, "hello.yaml", &hello)?;
     }
     Ok(root)
+}
+
+/// A request found by what is *in* it, and where.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHit {
+    pub id: String,
+    pub name: String,
+    pub method: String,
+    /// "URL", "param limit", "header X-Api-Key", "body", "docs".
+    pub found_in: String,
+}
+
+/// Every request whose URL, params, headers, body or notes contain `query`,
+/// case-insensitively. Names are not searched here — the tree already knows
+/// those — and auth values are not either: they are `{{names}}` by design,
+/// and a literal there is the one thing not worth making easy to find.
+pub fn search(root: &Path, query: &str) -> Result<Vec<SearchHit>> {
+    let needle = query.trim().to_lowercase();
+    if needle.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut ids: Vec<String> = Vec::new();
+    fn walk(nodes: &[Node], out: &mut Vec<String>) {
+        for node in nodes {
+            match node {
+                Node::Folder { children, .. } => walk(children, out),
+                Node::Request { id, .. } => out.push(id.clone()),
+            }
+        }
+    }
+    walk(&load(root)?.tree, &mut ids);
+
+    let mut hits = Vec::new();
+    for id in ids {
+        let Ok(request) = read_request(root, &id) else { continue };
+        let mut places: Vec<(String, String)> = vec![("URL".into(), request.url.clone())];
+        for p in &request.params {
+            places.push((format!("param {}", p.name), format!("{}={}", p.name, p.value)));
+        }
+        for h in &request.headers {
+            places.push((format!("header {}", h.name), format!("{}: {}", h.name, h.value)));
+        }
+        match &request.body {
+            Body::Text { content } | Body::Json { content } | Body::Xml { content } => places.push(("body".into(), content.clone())),
+            Body::UrlEncoded { fields } => {
+                for f in fields {
+                    places.push((format!("field {}", f.name), format!("{}={}", f.name, f.value)));
+                }
+            }
+            Body::Form { fields } => {
+                for f in fields {
+                    places.push((format!("field {}", f.name), format!("{}={}", f.name, f.value)));
+                }
+            }
+            Body::GraphQl { query, variables } => places.push(("body".into(), format!("{query}\n{variables}"))),
+            Body::Grpc { message, method, .. } => places.push(("body".into(), format!("{method}\n{message}"))),
+            Body::Binary { path } => places.push(("body".into(), path.clone())),
+            Body::None => {}
+        }
+        if let Some(docs) = &request.docs {
+            places.push(("docs".into(), docs.clone()));
+        }
+        if let Some((found_in, _)) = places.iter().find(|(_, text)| text.to_lowercase().contains(&needle)) {
+            hits.push(SearchHit { id, name: request.name.clone(), method: request.method.clone(), found_in: found_in.clone() });
+            if hits.len() >= 100 {
+                break;
+            }
+        }
+    }
+    Ok(hits)
+}
+
+/// Copy a request into another collection's root, under its own file name or
+/// the first free numbered one. The folders it lived in are not recreated:
+/// the other collection has its own shape, and a copy is a starting point.
+pub fn copy_request_to(root: &Path, id: &str, target_root: &Path) -> Result<String> {
+    let request = read_request(root, id)?;
+    if !target_root.join(COLLECTION_FILE).is_file() {
+        return Err(Error::Invalid(format!("{} is not a collection", target_root.display())));
+    }
+    let stem = Path::new(id).file_stem().and_then(|s| s.to_str()).unwrap_or("request").to_string();
+    let mut candidate = format!("{stem}.yaml");
+    let mut n = 2;
+    while target_root.join(&candidate).exists() {
+        candidate = format!("{stem}-{n}.yaml");
+        n += 1;
+    }
+    write_request(target_root, &candidate, &request)?;
+    Ok(candidate)
 }
 
 /// Parse arbitrary YAML (an import source, not the file format) into JSON
@@ -1952,6 +2062,9 @@ mod tests {
         let loaded = load(&root).unwrap();
         assert_eq!(loaded.meta.name, DEFAULT_NAME);
         assert!(root.join(".gitignore").exists(), "secrets are ignored even here");
+        assert_eq!(loaded.tree.len(), 1, "it starts with one request to send");
+        assert_eq!(read_request(&root, "hello.yaml").unwrap().name, "Hello, world");
+        fs::remove_file(root.join("hello.yaml")).unwrap();
 
         // Something the user made in the meantime.
         let request = Request { name: "Kept".into(), ..Default::default() };
@@ -1960,7 +2073,54 @@ mod tests {
         let again = ensure_default(&base).unwrap();
         assert_eq!(again, root);
         assert!(root.join("kept.yaml").exists(), "a second launch does not reinitialise it");
+        assert!(!root.join("hello.yaml").exists(), "and does not put the sample back");
 
         fs::remove_dir_all(&base).ok();
+    }
+    #[test]
+    fn search_looks_inside_requests_and_says_where() {
+        let root = scratch("search");
+        let mut request = Request { name: "Keyed".into(), method: "GET".into(), url: "https://api.test/v2/things".into(), ..Default::default() };
+        request.headers.push(KeyValue { name: "X-Api-Key".into(), value: "{{apiKey}}".into(), enabled: true, ..Default::default() });
+        request.docs = Some("Needs the Widget scope".into());
+        write_request(&root, "users/keyed.yaml", &request).unwrap();
+        let mut other = Request { name: "Body".into(), method: "POST".into(), url: "https://api.test/x".into(), ..Default::default() };
+        other.body = Body::Json { content: r#"{"kind": "WIDGET"}"#.into() };
+        write_request(&root, "body.yaml", &other).unwrap();
+
+        let hits = search(&root, "x-api-key").unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "users/keyed.yaml");
+        assert_eq!(hits[0].found_in, "header X-Api-Key");
+
+        let hits = search(&root, "widget").unwrap();
+        let mut where_found: Vec<String> = hits.iter().map(|h| format!("{}:{}", h.id, h.found_in)).collect();
+        where_found.sort();
+        assert_eq!(where_found, vec!["body.yaml:body".to_string(), "users/keyed.yaml:docs".to_string()], "case does not matter, and each says where");
+
+        assert!(search(&root, "/v2/").unwrap().iter().any(|h| h.found_in == "URL"));
+        assert!(search(&root, "nothing-like-this").unwrap().is_empty());
+        assert!(search(&root, "   ").unwrap().is_empty(), "blank finds nothing rather than everything");
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_request_copied_to_another_collection_keeps_its_name_and_finds_a_free_file() {
+        let from = scratch("copy-from");
+        let to = scratch("copy-to");
+        let request = Request { name: "Ping".into(), method: "GET".into(), url: "https://api.test/ping".into(), ..Default::default() };
+        write_request(&from, "users/ping.yaml", &request).unwrap();
+
+        assert_eq!(copy_request_to(&from, "users/ping.yaml", &to).unwrap(), "ping.yaml", "lands at the root, folders left behind");
+        assert_eq!(read_request(&to, "ping.yaml").unwrap().url, "https://api.test/ping");
+        assert_eq!(copy_request_to(&from, "users/ping.yaml", &to).unwrap(), "ping-2.yaml", "a second copy does not overwrite the first");
+        assert!(read_request(&from, "users/ping.yaml").is_ok(), "the original is untouched");
+
+        let not_a_collection = std::env::temp_dir().join(format!("volt-not-a-collection-{}", std::process::id()));
+        fs::create_dir_all(&not_a_collection).unwrap();
+        assert!(copy_request_to(&from, "users/ping.yaml", &not_a_collection).is_err());
+        fs::remove_dir_all(&from).ok();
+        fs::remove_dir_all(&to).ok();
+        fs::remove_dir_all(&not_a_collection).ok();
     }
 }

@@ -19,7 +19,7 @@ const tab = ref<'params' | 'headers' | 'body' | 'auth' | 'captures' | 'checks' |
 const request = computed(() => store.request!)
 
 /** Variables the active environment defines, for marking undefined ones. */
-const known = computed(() => store.environment?.vars.map((v) => v.name) ?? [])
+const known = computed(() => store.variableNames)
 
 type BodyKind = Body['type']
 type AuthKind = Auth['type']
@@ -195,7 +195,8 @@ watchEffect(async () => {
   }
   try {
     const out = await invoke<{ value: string; missing: string[] }>('preview', { input: full, envVars: vars })
-    if (tick === previewTick) resolved.value = out
+    // The preview has no body to hand a helper; only a send does.
+    if (tick === previewTick) resolved.value = { value: out.value, missing: out.missing.filter((name) => name !== '$body') }
   } catch {
     if (tick === previewTick) resolved.value = { value: '', missing: [] }
   }
@@ -291,13 +292,56 @@ const apiKeyLocation = computed({
 
 const collectionAuth = computed(() => AUTH_NAMES[store.collection?.meta.auth.type ?? 'none'])
 
-/// The one action the request has, whatever kind it is.
+/// The one action the request has, whatever kind it is — or, while one is
+/// in flight, the way to stop it.
 function onSend() {
-  if (!store.sending && request.value.url) store.go()
+  if (store.sending) {
+    void store.cancelSend()
+    return
+  }
+  if (request.value.url) store.go()
+}
+
+/**
+ * The URL as people expect to see it: the address with its query on the end.
+ * The query lives in the params rows; typing one into the URL puts it there,
+ * and the file keeps a clean `url` with the params beside it.
+ */
+const composedUrl = computed(() => {
+  // The pane can outlive its request by a tick when the last tab closes.
+  const current = store.request
+  if (!current) return ''
+  const url = current.url
+  const query = (current.params ?? [])
+    .filter((p) => p.enabled && (p.name || p.value))
+    .map((p) => `${p.name}=${p.value}`)
+    .join('&')
+  return query ? `${url}${url.includes('?') ? '&' : '?'}${query}` : url
+})
+
+function setUrl(text: string) {
+  const at = text.indexOf('?')
+  const disabled = request.value.params.filter((p) => !p.enabled)
+  if (at === -1) {
+    request.value.url = text
+    if (request.value.params.length !== disabled.length) request.value.params = disabled
+  } else {
+    request.value.url = text.slice(0, at)
+    const pairs = text
+      .slice(at + 1)
+      .split('&')
+      .filter(Boolean)
+      .map((pair) => {
+        const eq = pair.indexOf('=')
+        return eq === -1 ? { name: pair, value: '', enabled: true } : { name: pair.slice(0, eq), value: pair.slice(eq + 1), enabled: true }
+      })
+    request.value.params = [...pairs, ...disabled]
+  }
+  store.touch()
 }
 
 const sendLabel = computed(() => {
-  if (store.sending) return 'Sending'
+  if (store.sending) return 'Cancel'
   const kind = requestKind.value
   // A streaming gRPC method is a connection, and the key says so.
   if (kind === 'grpc') return store.grpcStreams ? (store.myStream ? 'Disconnect' : 'Connect') : 'Call'
@@ -423,18 +467,18 @@ useShortcut('mod+s', 'Save the request', () => {
       <UiVarInput
         class="url"
         variant="bare"
-        :model-value="request.url"
+        :model-value="composedUrl"
         :known="known"
         label="URL"
         placeholder="{{baseUrl}}/users, or paste a whole curl command"
-        @update:model-value="request.url = $event; store.touch()"
+        @update:model-value="setUrl($event)"
         @enter="onSend"
         @paste="onUrlPaste"
       />
 
-      <button type="button" class="send" :disabled="store.sending || !request.url" :title="`${sendLabel} (${modKey}+Enter)`" @click="onSend">
+      <button type="button" class="send" :class="{ cancel: store.sending }" :disabled="!store.sending && !request.url" :title="store.sending ? 'Stop this send' : `${sendLabel} (${modKey}+Enter)`" @click="onSend">
         <span>{{ sendLabel }}</span>
-        <UiIcon name="send" :size="14" />
+        <UiIcon :name="store.sending ? 'x' : 'send'" :size="14" />
       </button>
     </div>
 
@@ -443,8 +487,16 @@ useShortcut('mod+s', 'Save the request', () => {
         <UiIcon name="arrow-right" :size="12" class="arrow" />
         <span class="value mono selectable" :title="resolved.value">{{ resolved.value }}</span>
       </template>
-      <span v-if="resolved.missing.length" class="chip warn" :title="`No value in ${store.environment?.name ?? 'any environment'}`">
-        <UiIcon name="warning" :size="12" />Undefined: {{ resolved.missing.join(', ') }}
+      <span v-if="resolved.missing.length" class="chip warn undefined" :title="`No value in ${store.environment?.name ?? 'any environment'} — click a name to add it`">
+        <UiIcon name="warning" :size="12" />Undefined:
+        <button
+          v-for="name in resolved.missing"
+          :key="name"
+          type="button"
+          class="add-var"
+          :title="`Add ${name} to ${store.environment?.name ?? 'an environment'}`"
+          @click="store.openEnvironmentWith = name"
+        >{{ name }}</button>
       </span>
     </div>
 
@@ -994,17 +1046,23 @@ useShortcut('mod+s', 'Save the request', () => {
 .send:hover:not(:disabled) { background: var(--accent-hi); }
 .send:active:not(:disabled) { background: var(--accent-lo); }
 .send:disabled { background: var(--bg-0); color: var(--faint); border-left: 1px solid var(--line); }
+/* While a request is in flight the key is the way to stop it. */
+.send.cancel { background: var(--ink-2); }
+.send.cancel:hover { background: var(--ink); }
 .send:focus-visible { outline-offset: -3px; }
 
-/* While a request is in flight the key moves. */
-.sending .send:disabled {
-  background: repeating-linear-gradient(-45deg, var(--accent) 0 8px, var(--accent-lo) 8px 16px);
-  background-size: 22.6px 22.6px;
-  border-left: 0;
-  color: var(--accent-ink);
-  animation: stripes 700ms linear infinite;
+/* While a request is in flight the bar's edge moves. */
+.sending .probe { border-color: var(--accent); }
+.resolved .undefined { gap: 4px; }
+.add-var {
+  padding: 0 4px;
+  border-radius: 3px;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
 }
-@keyframes stripes { to { background-position: 22.6px 0; } }
+.add-var:hover { background: color-mix(in srgb, var(--warn) 18%, transparent); }
 
 .resolved {
   display: flex;

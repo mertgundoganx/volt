@@ -1,11 +1,18 @@
-//! `{{variable}}` interpolation.
+//! `{{variable}}` interpolation, and the helpers volt computes itself.
 //!
 //! Values may themselves contain variables, so we run repeated passes until
 //! the string stops changing or we hit `MAX_DEPTH` (which is what stops a
 //! self-referencing variable from looping forever).
+//!
+//! `{{$fn(arg, arg)}}` is a value computed from others — a signature, an
+//! encoding — which is what a Postman pre-request script is usually written
+//! for. There is no script: the set of functions is fixed and small, and a
+//! request that uses one still reads as a request in its YAML.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+use sha2::Digest as _;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_DEPTH: usize = 5;
@@ -19,11 +26,15 @@ pub struct Interpolated {
 }
 
 pub fn interpolate(input: &str, ctx: &HashMap<String, String>) -> Interpolated {
+    interpolate_depth(input, ctx, 0)
+}
+
+fn interpolate_depth(input: &str, ctx: &HashMap<String, String>, depth: usize) -> Interpolated {
     let mut current = input.to_string();
     let mut missing: Vec<String> = Vec::new();
 
     for _ in 0..MAX_DEPTH {
-        let (next, changed) = pass(&current, ctx, &mut missing);
+        let (next, changed) = pass(&current, ctx, &mut missing, depth);
         current = next;
         if !changed {
             break;
@@ -35,7 +46,7 @@ pub fn interpolate(input: &str, ctx: &HashMap<String, String>) -> Interpolated {
     Interpolated { value: current, missing }
 }
 
-fn pass(input: &str, ctx: &HashMap<String, String>, missing: &mut Vec<String>) -> (String, bool) {
+fn pass(input: &str, ctx: &HashMap<String, String>, missing: &mut Vec<String>, depth: usize) -> (String, bool) {
     let bytes = input.as_bytes();
     let mut out = String::with_capacity(input.len());
     let mut changed = false;
@@ -46,15 +57,21 @@ fn pass(input: &str, ctx: &HashMap<String, String>, missing: &mut Vec<String>) -
             if let Some(end) = input[i + 2..].find("}}") {
                 let raw = &input[i + 2..i + 2 + end];
                 let name = raw.trim();
-                match ctx.get(name) {
+                // A defined name wins, even one that looks like a call.
+                let (value, reported) = match ctx.get(name) {
+                    Some(value) => (Some(value.clone()), false),
+                    None if name.starts_with('$') && name.contains('(') => (helper(name, ctx, missing, depth), true),
+                    None => (None, false),
+                };
+                match value {
                     Some(value) => {
-                        out.push_str(value);
+                        out.push_str(&value);
                         changed = true;
                     }
                     None => {
                         // Leave the placeholder in place and report it.
                         out.push_str(&input[i..i + 2 + end + 2]);
-                        if !name.is_empty() {
+                        if !name.is_empty() && !reported {
                             missing.push(name.to_string());
                         }
                     }
@@ -74,6 +91,123 @@ fn pass(input: &str, ctx: &HashMap<String, String>, missing: &mut Vec<String>) -
 }
 
 // ---------------------------------------------------------------------------
+// Helpers: a value computed from others
+// ---------------------------------------------------------------------------
+
+/// The functions `{{$fn(...)}}` can name, with their arity — kept short on
+/// purpose. Each takes variable names or `"quoted"` literals; `$body` is the
+/// request body as it will be sent, laid down by `http::plan` before the URL
+/// and headers are resolved, so a body can be signed but not sign itself.
+pub const HELPERS: &[(&str, usize)] = &[
+    ("base64", 1),
+    ("sha256", 1),
+    ("md5", 1),
+    ("hmacSha256", 2),
+    ("hmacSha256Base64", 2),
+    ("urlencode", 1),
+    ("upper", 1),
+    ("lower", 1),
+];
+
+/// Evaluate `$fn(arg, arg)`. `None` means it could not be, and what was missing
+/// has been reported: an argument nobody defined, or a call nobody knows.
+fn helper(call: &str, ctx: &HashMap<String, String>, missing: &mut Vec<String>, depth: usize) -> Option<String> {
+    let open = call.find('(')?;
+    if !call.ends_with(')') {
+        missing.push(call.to_string());
+        return None;
+    }
+    let name = &call[1..open];
+    let inner = &call[open + 1..call.len() - 1];
+
+    let mut args: Vec<String> = Vec::new();
+    for raw in split_args(inner) {
+        let raw = raw.trim();
+        if raw.is_empty() {
+            continue;
+        }
+        if let Some(literal) = raw.strip_prefix('"').and_then(|rest| rest.strip_suffix('"')) {
+            args.push(literal.to_string());
+        } else if let Some(value) = ctx.get(raw) {
+            // A value may hold variables of its own; bounded like everything else.
+            args.push(if depth < MAX_DEPTH { interpolate_depth(value, ctx, depth + 1).value } else { value.clone() });
+        } else {
+            missing.push(raw.to_string());
+            return None;
+        }
+    }
+
+    let arity = HELPERS.iter().find(|(known, _)| *known == name).map(|(_, arity)| *arity);
+    if arity != Some(args.len()) {
+        missing.push(call.to_string());
+        return None;
+    }
+    let one = || args[0].as_str();
+    Some(match name {
+        "base64" => base64_of(one().as_bytes()),
+        "sha256" => hex(&sha2::Sha256::digest(one().as_bytes())),
+        "md5" => hex(&md5::Md5::digest(one().as_bytes())),
+        "hmacSha256" => hex(&hmac_sha256(args[0].as_bytes(), args[1].as_bytes())),
+        "hmacSha256Base64" => base64_of(&hmac_sha256(args[0].as_bytes(), args[1].as_bytes())),
+        "urlencode" => percent_encode(one()),
+        "upper" => one().to_uppercase(),
+        "lower" => one().to_lowercase(),
+        _ => unreachable!("arity table and match agree"),
+    })
+}
+
+/// Split on the commas outside double quotes.
+fn split_args(inner: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    for ch in inner.chars() {
+        match ch {
+            '"' => {
+                quoted = !quoted;
+                current.push(ch);
+            }
+            ',' if !quoted => out.push(std::mem::take(&mut current)),
+            _ => current.push(ch),
+        }
+    }
+    if !current.trim().is_empty() || !out.is_empty() {
+        out.push(current);
+    }
+    out
+}
+
+fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
+    use hmac::{KeyInit as _, Mac};
+    let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(key).expect("HMAC takes any key length");
+    mac.update(data);
+    mac.finalize().into_bytes().to_vec()
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn base64_of(bytes: &[u8]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+/// RFC 3986: everything but the unreserved characters is percent-encoded,
+/// a space included — this is for a path or a query value, not a form.
+fn percent_encode(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
 // Values volt supplies itself
 // ---------------------------------------------------------------------------
 
@@ -90,10 +224,13 @@ fn pass(input: &str, ctx: &HashMap<String, String>, missing: &mut Vec<String>) -
 /// used for anything that needs to be.
 pub fn dynamics() -> HashMap<String, String> {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let id = guid();
     HashMap::from([
         ("$timestamp".to_string(), now.to_string()),
         ("$isoTimestamp".to_string(), iso8601(now)),
-        ("$guid".to_string(), guid()),
+        ("$guid".to_string(), id.clone()),
+        // The same value under the name people also reach for.
+        ("$uuid".to_string(), id),
         ("$randomInt".to_string(), (random_u64() % 1001).to_string()),
     ])
 }
@@ -225,5 +362,58 @@ mod tests {
     fn keeps_multibyte_text_intact() {
         let out = interpolate("selam {{who}} ğüşiöç", &ctx(&[("who", "dünya")]));
         assert_eq!(out.value, "selam dünya ğüşiöç");
+    }
+    #[test]
+    fn helpers_compute_from_variables_and_literals() {
+        let ctx: HashMap<String, String> = HashMap::from([
+            ("secret".to_string(), "key".to_string()),
+            ("$body".to_string(), "The quick brown fox jumps over the lazy dog".to_string()),
+            ("who".to_string(), "{{name}}".to_string()),
+            ("name".to_string(), "ada".to_string()),
+        ]);
+        let out = interpolate(r#"{{$base64("hi")}}"#, &ctx);
+        assert_eq!(out.value, "aGk=");
+        assert!(out.missing.is_empty());
+
+        assert_eq!(interpolate(r#"{{$sha256("abc")}}"#, &ctx).value, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        assert_eq!(interpolate(r#"{{$md5("abc")}}"#, &ctx).value, "900150983cd24fb0d6963f7d28e17f72");
+        assert_eq!(
+            interpolate("{{$hmacSha256(secret, $body)}}", &ctx).value,
+            "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8",
+            "the RFC test vector, key from a variable and data from the body"
+        );
+        assert_eq!(interpolate("{{$hmacSha256Base64(secret, $body)}}", &ctx).value, "97yD9DBThCSxMpjmqm+xQ+9NWaFJRhdZl0edvC0aPNg=");
+        assert_eq!(interpolate(r#"{{$urlencode("a b&c/d")}}"#, &ctx).value, "a%20b%26c%2Fd");
+        assert_eq!(interpolate(r#"{{$upper("abc")}}-{{$lower("ABC")}}"#, &ctx).value, "ABC-abc");
+        assert_eq!(interpolate("{{$upper(who)}}", &ctx).value, "ADA", "an argument's own variables resolve first");
+        assert_eq!(interpolate(r#"{{$base64("a, b")}}"#, &ctx).value, "YSwgYg==", "a comma inside quotes is not a separator");
+    }
+
+    #[test]
+    fn a_helper_that_cannot_be_computed_stays_visible_and_says_why() {
+        let ctx: HashMap<String, String> = HashMap::from([("secret".to_string(), "key".to_string())]);
+
+        let out = interpolate("{{$hmacSha256(secret, $body)}}", &ctx);
+        assert_eq!(out.value, "{{$hmacSha256(secret, $body)}}", "left as written");
+        assert_eq!(out.missing, vec!["$body".to_string()], "the argument nobody defined, not the whole call");
+
+        let out = interpolate("{{$rot13(secret)}}", &ctx);
+        assert_eq!(out.missing, vec!["$rot13(secret)".to_string()], "a call nobody knows");
+
+        let out = interpolate("{{$base64(secret, secret)}}", &ctx);
+        assert_eq!(out.missing, vec!["$base64(secret, secret)".to_string()], "wrong arity");
+
+        let out = interpolate("{{$base64(secret}}", &ctx);
+        assert_eq!(out.missing, vec!["$base64(secret".to_string()], "unclosed");
+
+        // A variable that happens to look like a call is still a variable.
+        let ctx: HashMap<String, String> = HashMap::from([("$base64(x)".to_string(), "literal".to_string())]);
+        assert_eq!(interpolate("{{$base64(x)}}", &ctx).value, "literal");
+    }
+
+    #[test]
+    fn uuid_is_the_guid_under_another_name() {
+        let d = dynamics();
+        assert_eq!(d["$uuid"], d["$guid"]);
     }
 }

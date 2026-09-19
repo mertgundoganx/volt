@@ -97,11 +97,20 @@ async function duplicate(id: string) {
   close()
   await store.duplicate(id)
 }
+function copyTo(id: string, name: string) {
+  close()
+  store.copyToDialog = { id, name }
+}
 async function copyCurl(id: string) {
   close()
   await store.copyCurlFor(id)
 }
 
+function runFolder(id: string) {
+  close()
+  store.runnerTarget = id
+  store.runnerDialog = true
+}
 function folderSettings(id: string, name: string) {
   close()
   store.scopeDialog = { id, title: name }
@@ -143,6 +152,9 @@ async function remove() {
         <button type="button" role="menuitem" class="item" @click="folderSettings(node.id, node.name)">
           <UiIcon name="sliders" :size="15" /><span>Folder settings…</span><span class="hint">headers, auth, variables</span>
         </button>
+        <button type="button" role="menuitem" class="item" @click="runFolder(node.id)">
+          <UiIcon name="check" :size="15" /><span>Run this folder…</span><span class="hint">in order, with tests</span>
+        </button>
         <div class="sep" role="separator" />
       </template>
 
@@ -152,6 +164,9 @@ async function remove() {
         </button>
         <button type="button" role="menuitem" class="item" @click="copyCurl(node.id)">
           <UiIcon name="copy" :size="15" /><span>Copy as cURL</span><span class="hint">secrets hidden</span>
+        </button>
+        <button type="button" role="menuitem" class="item" @click="copyTo(node.id, node.name)">
+          <UiIcon name="move" :size="15" /><span>Copy to another collection…</span>
         </button>
         <div class="sep" role="separator" />
       </template>

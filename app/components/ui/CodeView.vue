@@ -9,6 +9,10 @@
  * is what makes the arithmetic exact; when the text is wrapped a row can be
  * taller than that, so windowing is off and a very long body is capped instead,
  * with a line saying so.
+ *
+ * JSON folds: a line that opens `{` or `[` carries a chevron in its gutter,
+ * and folding it hides everything down to the matching close. The hidden
+ * lines simply leave the visible list; line numbers stay the original ones.
  */
 import { jsonLines, markMatches, plainLines, type Line } from '~/utils/syntax'
 
@@ -41,27 +45,83 @@ const parsed = computed<Line[]>(() =>
   props.language === 'json' ? jsonLines(props.text) : plainLines(props.text),
 )
 const lines = computed<Line[]>(() => markMatches(parsed.value, props.find))
+
+// --- Folds -------------------------------------------------------------------
+// Which line closes each line that opens a container, from the brackets in
+// the punctuation tokens. Only pretty-printed JSON puts one open per line, so
+// the map is built from what is there rather than assumed.
+const foldEnds = computed<Map<number, number>>(() => {
+  const ends = new Map<number, number>()
+  if (props.language !== 'json') return ends
+  const stack: number[] = []
+  parsed.value.forEach((line, index) => {
+    for (const token of line) {
+      if (token.kind !== 'punc') continue
+      for (const ch of token.text) {
+        if (ch === '{' || ch === '[') stack.push(index)
+        else if (ch === '}' || ch === ']') {
+          const open = stack.pop()
+          if (open !== undefined && open !== index) ends.set(open, index)
+        }
+      }
+    }
+  })
+  return ends
+})
+const folded = ref(new Set<number>())
+// A new body, or a search, unfolds everything: a hit inside a fold would be
+// counted and not seen.
+watch(() => [props.text, props.find], () => (folded.value = new Set()))
+
+function toggleFold(index: number) {
+  const next = new Set(folded.value)
+  next.has(index) ? next.delete(index) : next.add(index)
+  folded.value = next
+}
+
+/** The original index of each visible line, with folded ranges left out. */
+const originals = computed<number[]>(() => {
+  const all = lines.value.length
+  if (!folded.value.size) return Array.from({ length: all }, (_, i) => i)
+  const out: number[] = []
+  for (let i = 0; i < all; i++) {
+    out.push(i)
+    if (folded.value.has(i)) {
+      const end = foldEnds.value.get(i)
+      if (end !== undefined) i = end
+    }
+  }
+  return out
+})
 const gutter = computed(() => `${String(lines.value.length).length + 1}ch`)
 
 const scroller = ref<HTMLElement | null>(null)
 const top = ref(0)
 const height = ref(0)
 
-const windowing = computed(() => !props.wrap && lines.value.length > WINDOW_FROM)
-const capped = computed(() => props.wrap && lines.value.length > WRAP_CAP)
+const windowing = computed(() => !props.wrap && originals.value.length > WINDOW_FROM)
+const capped = computed(() => props.wrap && originals.value.length > WRAP_CAP)
 
 const first = computed(() => {
   if (!windowing.value) return 0
   return Math.max(0, Math.floor(top.value / ROW) - OVERSCAN)
 })
 const last = computed(() => {
-  if (!windowing.value) return capped.value ? WRAP_CAP : lines.value.length
+  if (!windowing.value) return capped.value ? WRAP_CAP : originals.value.length
   const visible = Math.ceil((height.value || 600) / ROW)
-  return Math.min(lines.value.length, first.value + visible + OVERSCAN * 2)
+  return Math.min(originals.value.length, first.value + visible + OVERSCAN * 2)
 })
-const shown = computed(() => lines.value.slice(first.value, last.value))
+const shown = computed(() => originals.value.slice(first.value, last.value).map((original) => ({ original, line: lines.value[original]! })))
 const above = computed(() => first.value * ROW)
-const below = computed(() => Math.max(0, (lines.value.length - last.value) * ROW))
+const below = computed(() => Math.max(0, (originals.value.length - last.value) * ROW))
+
+/** What a folded line stands for: how many lines, and what closes them. */
+function foldSummary(original: number) {
+  const end = foldEnds.value.get(original)
+  if (end === undefined) return ''
+  const closing = lines.value[end]?.map((t) => t.text).join('').trim().replace(/,$/, '') ?? ''
+  return ` … ${closing} ${end - original - 1} ${end - original - 1 === 1 ? 'line' : 'lines'}`
+}
 
 /** The nearest ancestor that actually scrolls; the body lives inside a pane. */
 function findScroller(from: HTMLElement | undefined): HTMLElement | null {
@@ -111,16 +171,14 @@ watch(
   () => [props.current, props.find, props.text],
   async () => {
     if (!props.find) return
+    const el = scroller.value
+    if (!el) return
+    const at = lines.value.findIndex((line) => line.some((token) => token.hit === props.current))
+    if (at === -1) return
     if (windowing.value) {
-      const at = lines.value.findIndex((line) => line.some((token) => token.hit === props.current))
-      if (at !== -1 && scroller.value) {
-        const wanted = at * ROW
-        const view = scroller.value.clientHeight
-        if (wanted < scroller.value.scrollTop || wanted > scroller.value.scrollTop + view - ROW) {
-          scroller.value.scrollTop = Math.max(0, wanted - view / 2)
-        }
-        await nextTick()
-      }
+      const y = at * ROW
+      if (y < el.scrollTop || y + ROW > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, y - el.clientHeight / 2)
+      measure()
     }
     await nextTick()
     root.value?.querySelector('.hit.now')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
@@ -131,9 +189,20 @@ watch(
 <template>
   <div ref="root" class="ui-code mono selectable" :class="{ wrap }" :style="{ '--gutter': gutter }">
     <div v-if="above" class="spacer" :style="{ height: `${above}px` }" aria-hidden="true" />
-    <div v-for="(line, index) in shown" :key="first + index" class="row">
-      <span class="ln" aria-hidden="true">{{ first + index + 1 }}</span>
-      <span class="src"><template v-for="(token, t) in line" :key="t"><span v-if="token.hit !== undefined" class="hit" :class="[token.kind !== 'text' ? token.kind : '', { now: token.hit === props.current }]">{{ token.text }}</span><span v-else-if="token.kind !== 'text'" :class="token.kind">{{ token.text }}</span><template v-else>{{ token.text }}</template></template></span>
+    <div v-for="{ original, line } in shown" :key="original" class="row" :class="{ foldable: foldEnds.has(original), folded: folded.has(original) }">
+      <span class="ln" aria-hidden="true">
+        <button
+          v-if="foldEnds.has(original)"
+          type="button"
+          class="fold"
+          tabindex="-1"
+          :aria-label="folded.has(original) ? `Unfold line ${original + 1}` : `Fold line ${original + 1}`"
+          @click="toggleFold(original)"
+        >
+          <UiIcon :name="folded.has(original) ? 'chevron-right' : 'chevron-down'" :size="11" />
+        </button>{{ original + 1 }}
+      </span>
+      <span class="src"><template v-for="(token, t) in line" :key="t"><span v-if="token.hit !== undefined" class="hit" :class="[token.kind !== 'text' ? token.kind : '', { now: token.hit === props.current }]">{{ token.text }}</span><span v-else-if="token.kind !== 'text'" :class="token.kind">{{ token.text }}</span><template v-else>{{ token.text }}</template></template><button v-if="folded.has(original)" type="button" class="summary" @click="toggleFold(original)">{{ foldSummary(original) }}</button></span>
     </div>
     <div v-if="below" class="spacer" :style="{ height: `${below}px` }" aria-hidden="true" />
     <p v-if="capped" class="capped">
@@ -161,7 +230,11 @@ watch(
   position: sticky;
   left: 0;
   flex: none;
-  width: calc(var(--gutter) + var(--s-4));
+  display: inline-flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 2px;
+  width: calc(var(--gutter) + var(--s-4) + 14px);
   padding-right: var(--s-3);
   text-align: right;
   color: var(--faint);
@@ -170,9 +243,31 @@ watch(
   user-select: none;
   font-variant-numeric: tabular-nums;
 }
+.fold {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  color: var(--faint);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.row:hover .fold, .row.folded .fold { opacity: 1; }
+.fold:hover { color: var(--ink); background: var(--press); }
 
 .src { white-space: pre; padding-right: var(--s-4); }
 .wrap .src { white-space: pre-wrap; word-break: break-word; min-width: 0; }
+.summary {
+  margin-left: 4px;
+  padding: 0 6px;
+  border-radius: var(--r-xs);
+  background: var(--hover);
+  color: var(--silk);
+  font: inherit;
+  font-size: var(--t-meta);
+}
+.summary:hover { background: var(--press); color: var(--ink); }
 
 .key { color: var(--syn-key); }
 .str { color: var(--syn-str); }
@@ -189,5 +284,5 @@ watch(
 
 /* A match is not a status, so it is the accent rather than ok or warn. */
 .hit { border-radius: var(--r-xs); background: var(--accent-tint); box-shadow: 0 0 0 1px var(--accent-line); }
-.hit.now { background: var(--accent); color: var(--accent-ink); box-shadow: 0 0 12px -2px var(--accent); }
+.hit.now { background: var(--accent); color: var(--accent-ink); }
 </style>

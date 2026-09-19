@@ -210,13 +210,30 @@ still failing to send.
 - Pasting a curl command into the URL field fills the open request (unsaved);
   the cURL menu and the folder menu open `CurlDialog` for multi-line commands.
 **Variables volt supplies itself.** `{{$timestamp}}`, `{{$isoTimestamp}}`,
-`{{$guid}}` and `{{$randomInt}}` come from `vars::dynamics()`, which
+`{{$guid}}` (also `{{$uuid}}`) and `{{$randomInt}}` come from `vars::dynamics()`, which
 `collection::env_context` lays down *before* the environment — so a collection
 that defines one of those names wins. They are generated once per resolution,
 not per occurrence, so two `{{$guid}}` in one request agree; a later send gets
 new ones. `env_context` is the only place the map is built, which is how
 `preview`, Send and "Copy as cURL" stay in step. The randomness is splitmix64
 over the clock: fine for test data, never for anything that must be unguessable.
+
+**Helpers, not scripts.** `{{$fn(arg, arg)}}` is a value computed from
+others — `$hmacSha256(apiSecret, $body)`, `$base64("user:pass")` — which is
+what a Postman pre-request script is usually written for. The set is
+`vars::HELPERS`, fixed and small, mirrored by `SUPPLIED` in the store for
+completion; adding one means both. Arguments are variable names (resolved,
+and reported by name when missing) or double-quoted literals; a defined
+variable that happens to look like a call still wins. `$body` is the body as
+it will be sent: `http::plan` resolves the body *first*, lays it into a copy
+of the variables, and only then resolves the URL, query and headers — so a
+header can sign the payload and the payload cannot be defined in terms of
+itself (`$body` inside the body is reported missing). The `preview` command
+has no body to offer, so the UI drops `$body` from what it calls undefined.
+A helper that cannot be computed stays in the request verbatim and names
+what was missing — the argument, or the call — exactly like a variable.
+There is no script, deliberately: the value of a request in YAML is that it
+can be read.
 
 **Two option structs, on purpose.** `http::ExecOptions` is the app's settings
 and is IPC-only, so camelCase. `model::RequestOptions` is what a request
@@ -273,6 +290,20 @@ help with a session cookie the user never declared. So `hide_cookie_value`
 rewrites `session=abc123; Path=/; HttpOnly` as `session=…; Path=/; HttpOnly`:
 the name and the attributes stay, because "why am I not getting a cookie" is
 the reason to look at history in the first place, and only the value goes.
+
+**A response can be read three ways, and one of them writes back.** Pretty
+and Raw are text. Tree (`UiJsonTree`) is the parsed body with folds, and
+every row carries its path in the subset `capture::read` understands —
+`$.data.items[0].id` — so the Capture key on a row adds exactly the capture
+that will work, named after the last segment and kept secret when the name
+says token, key, password or the like. A body of more than 20,000 values says
+so instead of building a tree. `text/html` adds Preview: an `<iframe
+sandbox="">` with `srcdoc`, which allows nothing — no scripts, no forms, no
+navigation — because the body is whatever some server sent. Beside those, the
+diff key compares this send with the previous one on the same tab
+(`previousResponse`, carried in the tab like the response itself):
+`utils/diff.ts` is a plain line LCS, capped at 2,500 lines a side so it can
+never freeze the window, with unchanged runs folded.
 
 **An example is something to compare against.** `examples::compare` reads the
 kept response and the one on screen as *shapes*: the status, the content type,
@@ -397,6 +428,33 @@ editor; and a commit is refused while `.gitignore` does not cover the `.env`
 files. Missing git, or a folder that is not a repository, is not an error —
 `status` says so and the rest of the app carries on.
 
+**The first request is already there.** `ensure_default` writes one
+`hello.yaml` — a GET to a public JSON endpoint with a status test — into the
+personal collection the one time it creates it, so the first thing on screen
+is a Send key that does something. Deleting it is a delete like any other; a
+later launch never puts it back, because the check is for `collection.yaml`,
+not for the sample.
+
+**Files dropped on the window need no dialog.** The webview reports drops
+(`onDragDropEvent`); an export — Postman, Insomnia, OpenAPI — is converted
+into `<documents>/volt/` beside the personal collection (`imports_dir`) and
+opened with its report, and a folder is opened as it is. Asking where to put
+a dropped file would undo the point of dropping it.
+
+**`volt <folder>` opens that folder.** `startup_collection` reads the first
+command-line argument, or `VOLT_COLLECTION`, and `restore` opens it instead
+of the last collection when it holds a `collection.yaml`. It is what the
+real end-to-end test uses to keep out of the user's collections, and it is
+how a terminal or a shortcut opens the right one.
+
+**A panic leaves a report.** `install_crash_hook` writes the panic and its
+backtrace to `crash.log` in the app data folder before the default hook runs;
+`last_crash` hands it over once on the next start, renaming it to
+`crash-<stamp>.log`, and the shell shows a strip saying where it is. It is
+its own state (`store.crash`) rather than `store.error`, because every
+action clears `error` on its way in and the mock refresh on start would
+have wiped it before anyone read it.
+
 **A first launch opens a collection, not a dialog.** With nothing remembered,
 `restore` asks `default_collection` for volt's own folder —
 `<documents>/volt/personal`, made by `collection::ensure_default` the first
@@ -456,6 +514,17 @@ schema becomes a body worth editing, and `securitySchemes` become auth with
 placeholders — never a token, because a token in a spec is a mistake nobody
 should copy forward.
 
+
+**`{{` completes.** `UiVarInput` watches the text before the caret for an
+unclosed `{{name` and offers what `store.variableNames` knows — the values
+volt supplies, the collection's variables, the environment's — filtered by
+prefix. Enter or Tab inserts the name and closes the braces unless they are
+already typed; Escape closes the list and keeps it closed until the text
+changes; Enter with no list open still sends. The list is `position: fixed`
+because the URL bar clips its overflow. The same list is what marks a
+variable undefined, so marking and completing cannot disagree — with one
+gap, folder variables, which the UI does not load; Rust's `preview` remains
+the authority on what the URL resolves to.
 
 **Missing variables stay visible.** `vars::interpolate` leaves `{{name}}`
 verbatim and reports it in `missing_vars` rather than substituting an empty
@@ -521,6 +590,65 @@ catch: the task unwinds, the promise never settles, and `attempt()` never sees a
 rejection, so the UI sits there. That is why every indexing expression, slice
 range and integer cast on a path that touches a server's bytes, an imported
 document or the webview's numbers is a bug until it is bounded.
+
+**The URL bar shows the query; the file keeps it apart.** What the field
+shows is `url` with the enabled params appended, and what is typed into it is
+split back: the part before `?` becomes `url`, the pairs become the enabled
+params, disabled ones are kept behind them. People expect to paste a whole
+address and see the table fill, and to see the table in the address; the
+YAML stays `url` plus a list, which is what diffs well and what `plan` joins.
+
+**A send can be stopped.** Every send carries a token; `send_request` parks a
+oneshot under it in `Cancels` and `execute_or_cancel` selects between the
+send and that channel. Dropping the future drops the connection, so a
+cancelled send stops sending rather than finishing in the background. A
+cancelled send is not history — it says nothing about the server — and the
+UI, which set `sendToken` back to null before asking Rust, ignores whatever
+comes back under the old token and shows no error. The Send key is the Cancel
+key while a send is out; there is no second button to find.
+
+**Errors are said in words, with the original underneath.** `utils/errors.ts`
+maps the messages reqwest and the OS produce — refused, unknown host, timed
+out, reset, certificate — to a sentence with the host in it and what to do,
+and keeps the raw message under it on the strip: the sentence is for the
+person, the raw text is for the bug report. A certificate failure also sets
+`errorCertificate`, which is what puts "Send without verifying" on the strip;
+it turns off `verify_tls` on that request's own Options and sends again, so
+the choice is saved with the request rather than made for the whole app.
+
+**The open tabs come back.** `persistTabs` writes each collection's tabs —
+ids, which are dirty, and the dirty ones' edits — into the app's settings
+under `openTabs`, debounced from a deep watch on the live request;
+`restoreTabs` opens them again after `load`, putting the unsaved edit back
+on top of the file. `restoringTabs` holds `persistTabs` off while that
+happens, or the empty tab list of a collection just opened would overwrite
+the one about to be restored. History replays are not kept; they have no
+file.
+
+**Search reads the files.** The sidebar's name search stays in the store;
+`search_collection` (`collection::search`) reads every request and reports
+where the text was found — `header X-Api-Key`, `body`, `docs` — so a hit
+says why it is a hit. Auth values are not searched: they are `{{names}}` by
+design, and a literal there is the one thing not worth making easy to find.
+
+**A request can leave for another collection.** `copy_request_to` writes it
+at the other collection's root under its own file name, or the first free
+numbered one; a move is that copy followed by a delete into this
+collection's bin. The dialog offers the collections opened lately, because
+those are the ones a request is ever moved between.
+
+**A curl command dropped on a folder is a request in it.** The tree's drag
+code lets text from outside through (`over` accepts a `text/plain` drag
+when no row of ours is being dragged) and `onDrop` hands anything that
+`isCurl` to `importCurl` with the folder as parent; the empty part of the
+sidebar means the root. The row handler stops the event, or the root handler
+would import it a second time.
+
+**A tip is said once.** `tip(key, …)` shows a sticky toast the first time
+and records the key under `tips` in the app's settings. The one that exists
+explains the sample request's green mark after its first send. Tips are for
+things that are surprising once and obvious after; a second one should have
+to argue its way in.
 
 **The updater is the one thing that reaches out on its own.** volt asks
 GitHub's releases for a newer version on start, and nothing else about the app
@@ -690,6 +818,12 @@ labels on everything, decorative numbering.
   nowhere and everything typed went to the page. Focus in `onMounted`, from a
   template ref. (A function ref works for the rename field only because that
   input is patched into a row that is already on screen.)
+- The updater's `Update` is a class with private fields. Put it in Pinia
+  state as it is and Vue wraps it in a proxy, and `downloadAndInstall` then
+  throws "Cannot read private member from an object whose class did not
+  declare it" — so Install and restart did nothing, quietly, in 0.1.0 and
+  0.2.0. It is kept with `markRaw`. Anything else with `#fields` gets the
+  same treatment.
 - A multi-root component (`UiMenuButton` is a button plus a menu) does not
   pass `class` through. It sets `inheritAttrs: false` and binds `$attrs` to
   the trigger; do the same in any primitive that renders more than one root.

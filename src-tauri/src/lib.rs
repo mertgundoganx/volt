@@ -45,18 +45,103 @@ fn init_collection(path: String, name: String) -> Result<collection::Collection>
     collection::init(&PathBuf::from(path), &name)
 }
 
+/// The user's documents, or their home when there is no such folder.
+fn documents(app: &tauri::AppHandle) -> Result<PathBuf> {
+    use tauri::Manager as _;
+    app.path()
+        .document_dir()
+        .or_else(|_| app.path().home_dir())
+        .map_err(|e| error::Error::Invalid(format!("no folder to keep a collection in: {e}")))
+}
+
 /// The collection volt falls back to on start: a folder of its own under the
 /// user's documents, made the first time it is asked for.
 #[tauri::command]
 fn default_collection(app: tauri::AppHandle) -> Result<String> {
-    use tauri::Manager as _;
-    let base = app
-        .path()
-        .document_dir()
-        .or_else(|_| app.path().home_dir())
-        .map_err(|e| error::Error::Invalid(format!("no folder to keep a collection in: {e}")))?;
-    let root = collection::ensure_default(&base)?;
+    let root = collection::ensure_default(&documents(&app)?)?;
     Ok(root.to_string_lossy().into_owned())
+}
+
+/// Where an export dropped on the window is converted to: beside the personal
+/// collection, so it is found again without a second dialog.
+#[tauri::command]
+fn imports_dir(app: tauri::AppHandle) -> Result<String> {
+    let dir = documents(&app)?.join("volt");
+    std::fs::create_dir_all(&dir).map_err(|e| error::Error::Invalid(format!("cannot create {}: {e}", dir.display())))?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+/// A collection named when volt was started — `volt C:\api` on the command
+/// line, or `VOLT_COLLECTION` in the environment — to open instead of the last
+/// one. Only a folder with a `collection.yaml` counts.
+#[tauri::command]
+fn startup_collection() -> Option<String> {
+    let is_collection = |path: &str| std::path::Path::new(path).join(collection::COLLECTION_FILE).is_file();
+    // Any argument, not only the first, and with leading dashes dropped: a
+    // launcher may put its own switches before ours, and a WebDriver hands
+    // every argument on as a `--switch`.
+    std::env::args()
+        .skip(1)
+        .map(|arg| arg.trim_start_matches('-').to_string())
+        .find(|arg| is_collection(arg))
+        .or_else(|| std::env::var("VOLT_COLLECTION").ok().filter(|arg| is_collection(arg)))
+}
+
+/// A report a previous run left behind when it panicked, handed over once:
+/// the file is renamed so the next start does not say it again, and kept so
+/// it can be attached to a bug report.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Crash {
+    path: String,
+    text: String,
+}
+
+#[tauri::command]
+fn last_crash(app: tauri::AppHandle) -> Result<Option<Crash>> {
+    use tauri::Manager as _;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| error::Error::Invalid(format!("no app data directory: {e}")))?;
+    let file = dir.join("crash.log");
+    if !file.is_file() {
+        return Ok(None);
+    }
+    let text = std::fs::read_to_string(&file).map_err(|e| error::Error::io(file.display().to_string(), e))?;
+    let kept = dir.join(format!("crash-{}.log", unix_now()));
+    std::fs::rename(&file, &kept).map_err(|e| error::Error::io(file.display().to_string(), e))?;
+    Ok(Some(Crash { path: kept.to_string_lossy().into_owned(), text }))
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// A panic on any thread writes what happened to `crash.log` before the
+/// default hook prints it. On the main thread the process dies right after;
+/// on another thread the app carries on, and either way the next start can
+/// say that something went wrong and where the report is.
+fn install_crash_hook(dir: PathBuf) {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let text = format!(
+            "volt {} panicked at {}
+{}
+
+{}",
+            env!("CARGO_PKG_VERSION"),
+            unix_now(),
+            info,
+            std::backtrace::Backtrace::force_capture()
+        );
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(dir.join("crash.log"), text);
+        previous(info);
+    }));
 }
 
 /// Convert a Postman or Insomnia export into a new collection directory
@@ -156,6 +241,30 @@ struct SendOutcome {
 #[derive(Default)]
 struct Cookies(std::sync::Mutex<HashMap<String, std::sync::Arc<cookies::Jar>>>);
 
+/// Sends in flight, by the token the UI gave each one, so a Cancel key ends
+/// that one and no other.
+#[derive(Default)]
+struct Cancels(std::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<()>>>);
+
+#[tauri::command]
+fn cancel_send(cancels: tauri::State<'_, Cancels>, token: String) {
+    if let Some(sender) = cancels.0.lock().expect("cancels").remove(&token) {
+        let _ = sender.send(());
+    }
+}
+
+/// Requests found by what is in them, not by their names.
+#[tauri::command]
+fn search_collection(root: String, query: String) -> Result<Vec<collection::SearchHit>> {
+    collection::search(&PathBuf::from(root), &query)
+}
+
+/// A request copied into another collection; the new id there.
+#[tauri::command]
+fn copy_request_to(root: String, id: String, target: String) -> Result<String> {
+    collection::copy_request_to(&PathBuf::from(root), &id, &PathBuf::from(target))
+}
+
 impl Cookies {
     fn jar(&self, root: &str) -> std::sync::Arc<cookies::Jar> {
         let mut jars = self.0.lock().expect("cookie jars");
@@ -186,6 +295,8 @@ fn clear_cookies(cookies: tauri::State<'_, Cookies>, root: String) {
 async fn send_request(
     app: tauri::AppHandle,
     cookies: tauri::State<'_, Cookies>,
+    cancels: tauri::State<'_, Cancels>,
+    token: String,
     root: String,
     request: Request,
     env_vars: Vec<EnvVar>,
@@ -200,7 +311,9 @@ async fn send_request(
     let context: HashMap<String, String> = collection::scope_context(&scopes, &env_vars);
     let options = options.unwrap_or_default();
 
-    let result = http::execute(
+    let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+    cancels.0.lock().expect("cancels").insert(token.clone(), cancel_tx);
+    let result = http::execute_or_cancel(
         &request,
         &http::ExecContext {
             root: &root_path,
@@ -209,8 +322,15 @@ async fn send_request(
             options: &options,
             cookies: Some(cookies.jar(&root)),
         },
+        cancel_rx,
     )
     .await;
+    cancels.0.lock().expect("cancels").remove(&token);
+    // A send the user gave up on is not a fact about the server; it is not
+    // history, and it has nothing to capture.
+    if matches!(&result, Err(error::Error::Http(message)) if message == http::CANCELLED) {
+        return Err(error::Error::Http(http::CANCELLED.into()));
+    }
 
     // What the request captured counts as a secret for this entry too. On the
     // very first login the token is not in the environment yet, so without this
@@ -811,13 +931,24 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(Cookies::default())
+        .manage(Cancels::default())
         .manage(Schemas::default())
         .manage(mock::Server::default())
         .manage(stream::Streams::default())
+        .setup(|app| {
+            use tauri::Manager as _;
+            if let Ok(dir) = app.path().app_data_dir() {
+                install_crash_hook(dir);
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             open_collection,
             init_collection,
             default_collection,
+            imports_dir,
+            startup_collection,
+            last_crash,
             import_collection,
             get_request,
             save_request,
@@ -836,6 +967,9 @@ pub fn run() {
             delete_cookie,
             save_body,
             send_request,
+            cancel_send,
+            search_collection,
+            copy_request_to,
             list_history,
             get_history_entry,
             clear_history,

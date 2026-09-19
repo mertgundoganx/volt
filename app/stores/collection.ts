@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { markRaw } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { parentOf, type DropPosition } from '~/composables/useTreeMenu'
 import { ask, open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog'
@@ -8,6 +9,7 @@ import { relaunch } from '@tauri-apps/plugin-process'
 import { getVersion } from '@tauri-apps/api/app'
 
 import { fileBase } from '~/utils/curl'
+import { explain } from '~/utils/errors'
 
 import {
   defaultExecOptions,
@@ -46,6 +48,7 @@ import {
   type OAuthToken,
   type CheckOutcome,
   type Deleted,
+  type SearchHit,
   type Comparison,
   type GraphQlSchema,
   type GraphQlProblem,
@@ -62,6 +65,19 @@ const WORKSPACES_KEY = 'workspaces'
 const WORKSPACE_KEY = 'workspace'
 const MONITORS_KEY = 'monitors'
 const AUTO_UPDATE_KEY = 'checkUpdates'
+const TABS_KEY = 'openTabs'
+const TIPS_KEY = 'tips'
+
+/**
+ * What volt supplies without anyone defining it: the values in
+ * `vars::dynamics`, `$body` (the request body, for a helper to sign), and the
+ * helpers themselves — offered with their opening bracket so that picking one
+ * lands the caret inside it. Mirrors `vars::HELPERS`.
+ */
+export const SUPPLIED = [
+  '$timestamp', '$isoTimestamp', '$guid', '$uuid', '$randomInt', '$body',
+  '$base64(', '$sha256(', '$md5(', '$hmacSha256(', '$hmacSha256Base64(', '$urlencode(', '$upper(', '$lower(',
+]
 
 export type ThemePreference = 'system' | 'light' | 'dark' | 'linen' | 'mist'
 export const THEMES: ThemePreference[] = ['system', 'light', 'dark', 'linen', 'mist']
@@ -133,6 +149,8 @@ export interface Tab {
   request: ApiRequest | null
   dirty: boolean
   response: HttpResponse | null
+  /** The one before it, so a send can be compared with the last. */
+  previousResponse: HttpResponse | null
   historyEntry: HistorySummary | null
   curlNotice: CurlNotice | null
   captureNotes: string[]
@@ -144,6 +162,7 @@ function blankTab(id: string | null): Tab {
     request: null,
     dirty: false,
     response: null,
+    previousResponse: null,
     historyEntry: null,
     curlNotice: null,
     captureNotes: [],
@@ -220,7 +239,13 @@ export const useCollectionStore = defineStore('collection', {
     activeEnvironment: null as string | null,
 
     response: null as HttpResponse | null,
+    /** The response before the one on screen, from the same tab. */
+    previousResponse: null as HttpResponse | null,
+    /** What a previous run left behind when it panicked, said once. */
+    crash: null as { path: string; text: string } | null,
     sending: false,
+    /** The token the send in flight was given, so Cancel can name it. */
+    sendToken: null as string | null,
 
     /** How requests are executed. App-wide, not part of the collection. */
     options: defaultExecOptions() as ExecOptions,
@@ -304,6 +329,17 @@ export const useCollectionStore = defineStore('collection', {
     scopeDialog: null as { id: string | null; title: string } | null,
     syncDialog: false,
     runnerDialog: false,
+    /** The request being copied to another collection. */
+    copyToDialog: null as { id: string; name: string } | null,
+    shortcutsSheet: false,
+    /** A variable name to add when the environment editor opens next. */
+    openEnvironmentWith: null as string | null,
+    /** One-time explanations that have been shown. */
+    tips: {} as Record<string, boolean>,
+    /** While the tabs of a freshly opened collection are being put back. */
+    restoringTabs: false,
+    /** The folder the runner opens on, when it was opened from one. */
+    runnerTarget: null as string | null,
     trashDialog: false,
     oauthDialog: false,
     workspacesDialog: false,
@@ -317,6 +353,10 @@ export const useCollectionStore = defineStore('collection', {
 
     /** Surfaced as a banner. Every failed action lands here. */
     error: null as string | null,
+    /** The raw message behind `error`, when the banner says it in other words. */
+    errorDetail: null as string | null,
+    /** The failure was the server's certificate, so a retry without verifying is offered. */
+    errorCertificate: false,
   }),
 
   getters: {
@@ -361,6 +401,20 @@ export const useCollectionStore = defineStore('collection', {
       const all = state.collection?.environments ?? []
       return all.find((e) => e.name === state.activeEnvironment) ?? all[0] ?? null
     },
+
+    /**
+     * Every name a `{{variable}}` can take right now — the ones volt supplies,
+     * the collection's, the environment's — for marking and for completion.
+     * Folder variables are not here: the UI does not load folder metas, and
+     * `preview` from Rust is the authority on what the URL will resolve to.
+     */
+    variableNames(): string[] {
+      const names = new Set<string>()
+      for (const v of this.collection?.meta.vars ?? []) if (v.name) names.add(v.name)
+      for (const v of this.environment?.vars ?? []) if (v.name) names.add(v.name)
+      for (const supplied of SUPPLIED) names.add(supplied)
+      return [...names]
+    },
   },
 
   actions: {
@@ -370,12 +424,22 @@ export const useCollectionStore = defineStore('collection', {
      */
     async attempt<T>(fn: () => Promise<T>): Promise<T | undefined> {
       this.error = null
+      this.errorDetail = null
+      this.errorCertificate = false
       try {
         return await fn()
       } catch (e) {
-        this.error = describe(e)
+        this.fail(e)
         return undefined
       }
+    },
+
+    /** Put a failure on the banner, in the user's words where there are any. */
+    fail(e: unknown, url?: string | null) {
+      const explained = explain(describe(e), url, this.options.timeoutMs)
+      this.error = explained.text
+      this.errorDetail = explained.raw
+      this.errorCertificate = explained.certificate
     },
 
     requireRoot(): string {
@@ -396,12 +460,18 @@ export const useCollectionStore = defineStore('collection', {
         applyTheme(this.theme)
 
         this.autoCheckUpdates = (await store.get<boolean>(AUTO_UPDATE_KEY)) ?? true
+        this.tips = (await store.get<Record<string, boolean>>(TIPS_KEY)) ?? {}
         this.version = await getVersion().catch(() => '')
         // Quietly, and not in the way: whether there is a new release is not
         // worth blocking the collection the user came here to open.
         if (this.autoCheckUpdates) void this.checkForUpdate()
 
-        const last = this.recent[0]
+        const crash = await invoke<{ path: string; text: string } | null>('last_crash').catch(() => null)
+        if (crash) this.crash = crash
+
+        // `volt <folder>` on the command line opens that folder over the last one.
+        const named = await invoke<string | null>('startup_collection').catch(() => null)
+        const last = named ?? this.recent[0]
         if (last) {
           try {
             await this.load(last)
@@ -443,6 +513,7 @@ export const useCollectionStore = defineStore('collection', {
       this.activeId = null
       this.request = null
       this.response = null
+      this.previousResponse = null
       this.historyEntry = null
       this.curlNotice = null
       this.captureNotes = []
@@ -464,6 +535,126 @@ export const useCollectionStore = defineStore('collection', {
       await this.refreshHistory()
       // Monitors belong to a collection, so opening another one stops theirs.
       this.restartMonitors()
+      await this.restoreTabs()
+    },
+
+    /**
+     * The open tabs, per collection, so a restart puts them back — an
+     * unsaved edit included, which is the one that would otherwise be lost.
+     * Kept in the app's settings, never in the collection.
+     */
+    async persistTabs() {
+      const root = this.root
+      if (!root || this.restoringTabs) return
+      this.snapshot()
+      const tabs = this.tabs
+        .filter((tab) => !tab.historyEntry && tab.id)
+        .map((tab) => ({ id: tab.id, dirty: tab.dirty, request: tab.dirty ? tab.request : null }))
+      const store = await loadStore('volt.json', { autoSave: true })
+      const all = (await store.get<Record<string, unknown>>(TABS_KEY)) ?? {}
+      all[root] = { activeTab: Math.max(0, Math.min(this.activeTab, tabs.length - 1)), tabs }
+      await store.set(TABS_KEY, all)
+    },
+
+    async restoreTabs() {
+      const root = this.root
+      if (!root) return
+      this.restoringTabs = true
+      try {
+        const store = await loadStore('volt.json', { autoSave: true })
+        const all = (await store.get<Record<string, { activeTab: number; tabs: { id: string | null; dirty: boolean; request: ApiRequest | null }[] }>>(TABS_KEY)) ?? {}
+        const saved = all[root]
+        if (!saved?.tabs?.length) return
+        for (const tab of saved.tabs) {
+          if (!tab.id) continue
+          try {
+            await this.openRequest(tab.id)
+            if (tab.dirty && tab.request) {
+              this.request = normalizeRequest(tab.request)
+              this.dirty = true
+            }
+          } catch {
+            // The file is gone since; there is nothing to put back.
+          }
+        }
+        if (this.tabs.length) this.switchTab(Math.max(0, Math.min(saved.activeTab, this.tabs.length - 1)))
+      } finally {
+        this.restoringTabs = false
+      }
+    },
+
+    /** Requests whose contents hold `query`; Rust reads the files. */
+    async searchContents(query: string): Promise<SearchHit[]> {
+      const root = this.root
+      if (!root || !query.trim()) return []
+      try {
+        return (await invoke<SearchHit[] | null>('search_collection', { root, query })) ?? []
+      } catch {
+        return []
+      }
+    },
+
+    /** Reorder the tabs; the active one stays active. */
+    moveTab(from: number, to: number) {
+      if (from === to || !this.tabs[from] || to < 0 || to >= this.tabs.length) return
+      this.snapshot()
+      const active = this.tabs[this.activeTab]
+      const [moved] = this.tabs.splice(from, 1)
+      this.tabs.splice(to, 0, moved!)
+      this.activeTab = Math.max(0, this.tabs.indexOf(active!))
+    },
+
+    /** Close every tab but one, or every tab after it. Each unsaved one still asks. */
+    async closeOthers(index: number, side: 'others' | 'right' = 'others') {
+      let keep = index
+      for (let i = this.tabs.length - 1; i >= 0; i--) {
+        if (i === keep || (side === 'right' && i < keep)) continue
+        const before = this.tabs.length
+        await this.closeTab(i)
+        if (this.tabs.length < before && i < keep) keep -= 1
+      }
+    },
+
+    /** End the send in flight. The token names it, so nothing else is touched. */
+    async cancelSend() {
+      const token = this.sendToken
+      if (!token) return
+      this.sendToken = null
+      this.sending = false
+      await invoke('cancel_send', { token }).catch(() => {})
+    },
+
+    /** The certificate was refused: send this request once more without checking it. */
+    async sendWithoutVerifying() {
+      if (!this.request) return
+      this.request.options = { ...(this.request.options ?? {}), verify_tls: false }
+      this.touch()
+      await this.send()
+    },
+
+    /**
+     * Copy a request into another collection — one opened lately — or move
+     * it, which is the same copy followed by a delete into this one's bin.
+     */
+    async copyRequestTo(id: string, target: string, move: boolean): Promise<boolean> {
+      const done = await this.attempt(async () => {
+        const root = this.requireRoot()
+        const newId = await invoke<string>('copy_request_to', { root, id, target })
+        const where = target.split(/[\\/]/).filter(Boolean).pop() ?? target
+        if (move) {
+          await invoke<Deleted>('delete_node', { root, id })
+          for (let i = this.tabs.length - 1; i >= 0; i--) {
+            const open = i === this.activeTab ? this.activeId : this.tabs[i]!.id
+            if (open === id) this.dropTab(i)
+          }
+          await this.reload()
+          this.notify(`Moved to ${where}`, `${newId} there; the copy here is in the bin`)
+        } else {
+          this.notify(`Copied to ${where}`, `as ${newId}`)
+        }
+        return true
+      })
+      return done === true
     },
 
     async open(path: string) {
@@ -562,6 +753,7 @@ export const useCollectionStore = defineStore('collection', {
       tab.request = this.request
       tab.dirty = this.dirty
       tab.response = this.response
+      tab.previousResponse = this.previousResponse
       tab.historyEntry = this.historyEntry
       tab.curlNotice = this.curlNotice
       tab.captureNotes = this.captureNotes
@@ -579,6 +771,7 @@ export const useCollectionStore = defineStore('collection', {
       this.request = next.request
       this.dirty = next.dirty
       this.response = next.response
+      this.previousResponse = next.previousResponse
       this.historyEntry = next.historyEntry
       this.curlNotice = next.curlNotice
       this.captureNotes = next.captureNotes
@@ -637,12 +830,22 @@ export const useCollectionStore = defineStore('collection', {
       return this.tabs[this.activeTab] ?? null
     },
 
-    notify(text: string, detail?: string, tone: Toast['tone'] = 'ok', undo = false) {
+    notify(text: string, detail?: string, tone: Toast['tone'] = 'ok', undo = false, sticky = false) {
       const id = Date.now()
       this.toast = { id, text, detail, tone, undo }
+      if (sticky) return
       setTimeout(() => {
         if (this.toast?.id === id) this.toast = null
       }, detail ? 4200 : 2600)
+    },
+
+    /** Said once and remembered, for the things worth explaining the first time only. */
+    async tip(key: string, text: string, detail: string) {
+      if (this.tips[key]) return
+      this.tips = { ...this.tips, [key]: true }
+      this.notify(text, detail, 'ok', false, true)
+      const store = await loadStore('volt.json', { autoSave: true })
+      await store.set(TIPS_KEY, this.tips)
     },
 
     /**
@@ -787,6 +990,48 @@ export const useCollectionStore = defineStore('collection', {
         await this.reload()
         await this.select(id)
       })
+    },
+
+    /**
+     * Files dropped on the window. An export (Postman, Insomnia, OpenAPI)
+     * becomes a collection beside the personal one and opens; a folder opens
+     * as it is. Nothing asks where to put it, which is the point of dropping.
+     */
+    async importPaths(paths: string[]) {
+      await this.attempt(async () => {
+        let opened: string | null = null
+        let report: ImportOutcome['report'] | null = null
+        for (const path of paths) {
+          if (/.(json|ya?ml)$/i.test(path)) {
+            const into = await invoke<string>('imports_dir')
+            const outcome = await invoke<ImportOutcome>('import_collection', { source: path, into })
+            opened = outcome.report.path
+            report = outcome.report
+          } else {
+            opened = path
+          }
+        }
+        if (opened) await this.load(opened)
+        if (report) this.importReport = report
+      })
+    },
+
+    /**
+     * A capture from a path clicked in the response tree. Named after the
+     * last segment, and kept as a secret when the name says it is one.
+     */
+    addCapture(from: string, name: string) {
+      const request = this.request
+      if (!request) return
+      const captures = request.captures ?? []
+      if (captures.some((capture) => capture.from === from)) {
+        this.notify('Already captured', `${from} is on the Captures tab`)
+        return
+      }
+      const secret = /token|secret|password|passwd|key|auth|session|cookie/i.test(name)
+      request.captures = [...captures, { name, from, enabled: true, secret }]
+      this.touch()
+      this.notify(`Capture added: ${name}`, `${from} — send again to fill it${secret ? ', kept as a secret' : ''}`)
     },
 
     /**
@@ -1158,7 +1403,10 @@ export const useCollectionStore = defineStore('collection', {
     async checkForUpdate(loud = false): Promise<boolean> {
       try {
         const found = await checkUpdate()
-        this.update = found ?? null
+        // Raw, not reactive: `Update` is a class with private fields, and a
+        // Vue proxy around it makes `downloadAndInstall` throw "Cannot read
+        // private member" — so Install and restart did nothing until this.
+        this.update = found ? markRaw(found) : null
         if (found) {
           this.notify(`volt ${found.version} is available`, 'Install it from Settings')
           return true
@@ -1836,10 +2084,18 @@ export const useCollectionStore = defineStore('collection', {
       const root = this.requireRoot()
       const owner = this.tabs[this.activeTab] ?? null
 
+      const token = crypto.randomUUID()
+      const url = this.request.url
       this.sending = true
+      this.sendToken = token
+      this.error = null
+      this.errorDetail = null
+      this.errorCertificate = false
       try {
-        const result = await this.attempt(async () => {
-          return await invoke<SendOutcome>('send_request', {
+        let result: SendOutcome | undefined
+        try {
+          result = await invoke<SendOutcome>('send_request', {
+            token,
             root,
             request: this.request,
             envVars: this.environment?.vars ?? [],
@@ -1847,20 +2103,25 @@ export const useCollectionStore = defineStore('collection', {
             requestId: this.activeId,
             environment: this.environment?.name ?? null,
           })
-        })
+        } catch (e) {
+          // Cancelled is what the user asked for; it is not an error to show.
+          if (this.sendToken === token && !/cancelled$/.test(describe(e))) this.fail(e, url)
+        }
 
-        // A different collection is open now; this answer is about a tab that
-        // no longer exists.
-        if (this.root !== root) return
+        // Cancelled, or a different collection is open now: this answer is
+        // about a tab that no longer exists.
+        if (this.sendToken !== token || this.root !== root) return
 
         const stillActive = owner !== null && this.tabs[this.activeTab] === owner
         if (stillActive) {
+          this.previousResponse = this.response
           this.response = result?.response ?? null
           this.captureNotes = result?.captureNotes ?? []
           this.checkResults = result?.checks ?? []
         } else if (owner !== null && this.tabs.includes(owner)) {
           // The tab is still open, just not in front. Put the reading where it
           // belongs rather than on top of whatever the user moved to.
+          owner.previousResponse = owner.response
           owner.response = result?.response ?? null
           owner.captureNotes = result?.captureNotes ?? []
         }
@@ -1868,6 +2129,11 @@ export const useCollectionStore = defineStore('collection', {
         // for the reading to go, and the history entry below still records it.
 
         if (result?.captured?.length) await this.applyCaptures(result.captured)
+
+        // The sample request's test, explained the first time it runs.
+        if (result?.checks?.length && this.activeId === 'hello.yaml' && this.root === this.defaultRoot) {
+          void this.tip('hello', 'That green mark is a test', 'status is 200, on the Tests tab. A failing test is what makes a run fail — here and from volt-run in CI.')
+        }
 
         if (result?.history) {
           this.history = [result.history, ...this.history].slice(0, HISTORY_LIMIT)
@@ -1877,7 +2143,10 @@ export const useCollectionStore = defineStore('collection', {
           await this.refreshHistory()
         }
       } finally {
-        this.sending = false
+        if (this.sendToken === token) {
+          this.sending = false
+          this.sendToken = null
+        }
       }
     },
 

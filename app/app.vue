@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { listen } from '@tauri-apps/api/event'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
 import type { StreamEvent } from '~/types'
 
 const store = useCollectionStore()
 const editingEnv = ref(false)
 const editingSettings = ref(false)
 const palette = ref(false)
-const shortcuts = ref(false)
 
 installShortcuts()
 // The bottom pane follows the open request.
@@ -21,7 +21,24 @@ const bottom = computed(() => {
 useShortcut('mod+p', 'Open a request', () => (palette.value = true))
 useShortcut('mod+e', 'Environments', () => (editingEnv.value = true))
 useShortcut('mod+,', 'Settings', () => (editingSettings.value = true))
-useShortcut('?', 'This list', () => (shortcuts.value = true))
+useShortcut('?', 'This list', () => (store.shortcutsSheet = true))
+
+// A variable named in the request but defined nowhere opens the environment
+// editor with that name ready to fill in.
+watch(() => store.openEnvironmentWith, (name) => {
+  if (name) editingEnv.value = true
+})
+
+// The open tabs survive a restart. Debounced: typing is many changes.
+let persistTimer: ReturnType<typeof setTimeout> | undefined
+watch(
+  () => [store.tabs.length, store.activeTab, store.activeId, store.dirty, store.request],
+  () => {
+    clearTimeout(persistTimer)
+    persistTimer = setTimeout(() => void store.persistTabs(), 500)
+  },
+  { deep: true },
+)
 
 // Pane sizes are the user's, so they persist.
 const { value: sidebarWidth, reset: resetSidebar } = usePersistentNumber('volt.sidebarWidth', 264, 200, 480)
@@ -42,6 +59,27 @@ onMounted(async () => {
   stopStream = await listen<StreamEvent>('volt://stream', (event) => store.noteStreamEvent(event.payload))
 })
 onUnmounted(() => stopStream?.())
+
+// Files dragged onto the window. The webview reports the paths; a veil says
+// what dropping will do while something is held over the window.
+const dropping = ref(false)
+let stopDrop: (() => void) | undefined
+onMounted(async () => {
+  try {
+    stopDrop = await getCurrentWebview().onDragDropEvent((event) => {
+      const payload = event.payload
+      if (payload.type === 'enter') dropping.value = true
+      else if (payload.type === 'leave') dropping.value = false
+      else if (payload.type === 'drop') {
+        dropping.value = false
+        void store.importPaths(payload.paths)
+      }
+    })
+  } catch {
+    // Not inside a Tauri webview: nothing can be dropped, and nothing to undo.
+  }
+})
+onUnmounted(() => stopDrop?.())
 
 onMounted(() => {
   store.restore()
@@ -76,9 +114,32 @@ onMounted(() => {
         <UiSplitter axis="x" label="Sidebar width" @drag="sidebarWidth += $event" @reset="resetSidebar()" />
 
         <main class="main">
+          <div v-if="store.crash" class="error-strip" role="alert">
+            <span class="led bad" />
+            <span class="message selectable">
+              volt closed unexpectedly last time. The report is at
+              <span class="mono">{{ store.crash.path }}</span> — please attach it to a bug report.
+            </span>
+            <button type="button" class="icon-btn quiet sm" aria-label="Dismiss crash report" title="Dismiss" @click="store.crash = null">
+              <UiIcon name="x" :size="14" />
+            </button>
+          </div>
+
           <div v-if="store.error" class="error-strip" role="alert">
             <span class="led bad" />
-            <span class="message mono selectable">{{ store.error }}</span>
+            <span class="message selectable" :class="{ mono: !store.errorDetail }">
+              <span class="said">{{ store.error }}</span>
+              <span v-if="store.errorDetail" class="detail mono">{{ store.errorDetail }}</span>
+            </span>
+            <button
+              v-if="store.errorCertificate && store.request"
+              type="button"
+              class="btn btn-sm"
+              title="Turns off certificate verification for this request (its Options tab) and sends again"
+              @click="store.sendWithoutVerifying()"
+            >
+              Send without verifying
+            </button>
             <button type="button" class="icon-btn quiet sm" aria-label="Dismiss error" title="Dismiss" @click="store.error = null">
               <UiIcon name="x" :size="14" />
             </button>
@@ -112,7 +173,7 @@ onMounted(() => {
     <CodeDialog v-if="store.codeDialog" @close="store.codeDialog = false" />
     <CookiesDialog v-if="store.cookiesDialog" @close="store.cookiesDialog = false" />
     <SyncDialog v-if="store.syncDialog" @close="store.syncDialog = false" />
-    <RunnerDialog v-if="store.runnerDialog" @close="store.runnerDialog = false" />
+    <RunnerDialog v-if="store.runnerDialog" @close="store.runnerDialog = false; store.runnerTarget = null" />
     <TrashDialog v-if="store.trashDialog" @close="store.trashDialog = false" />
     <OAuthDialog v-if="store.oauthDialog" @close="store.oauthDialog = false" />
     <WorkspacesDialog v-if="store.workspacesDialog" @close="store.workspacesDialog = false" />
@@ -124,10 +185,19 @@ onMounted(() => {
       :title="store.scopeDialog.title"
       @close="store.scopeDialog = null"
     />
-    <ShortcutsSheet v-if="shortcuts" @close="shortcuts = false" />
+    <ShortcutsSheet v-if="store.shortcutsSheet" @close="store.shortcutsSheet = false" />
+    <CopyToDialog v-if="store.copyToDialog" @close="store.copyToDialog = null" />
     <ImportReport v-if="store.importReport" />
     <CurlDialog v-if="store.curlDialog" />
     <Toast />
+
+    <div v-if="dropping" class="drop-veil" aria-hidden="true">
+      <div class="drop-card">
+        <UiIcon name="import" :size="22" />
+        <span class="drop-title">Drop to import</span>
+        <span class="drop-hint">A Postman, Insomnia or OpenAPI file becomes a collection; a folder opens.</span>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -149,6 +219,33 @@ onMounted(() => {
   flex: none;
 }
 .error-strip .led { margin-top: 6px; }
+.error-strip .message.selectable { font-family: var(--font-ui); display: grid; gap: 3px; }
+.error-strip .message.mono { font-family: var(--font-mono); }
+.error-strip .detail { font-size: var(--t-meta); color: color-mix(in srgb, var(--bad) 70%, var(--ink)); opacity: 0.85; }
+.error-strip .btn { flex: none; align-self: center; }
+
+.drop-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: grid;
+  place-items: center;
+  background: var(--backdrop);
+  pointer-events: none;
+}
+.drop-card {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: var(--s-6) var(--s-8);
+  border: 2px dashed var(--accent);
+  border-radius: var(--r-lg);
+  background: var(--bg-3);
+  color: var(--ink);
+}
+.drop-card .ui-icon { color: var(--accent-text); margin-bottom: 4px; }
+.drop-title { font-weight: 600; font-size: 15px; }
+.drop-hint { color: var(--silk); font-size: var(--t-small); max-width: 40ch; text-align: center; }
 .message {
   flex: 1;
   padding-top: 2px;

@@ -34,6 +34,25 @@ const drafts = ref<Draft[]>(
 const selected = ref(drafts.value.find((d) => d.name === store.environment?.name)?.key ?? drafts.value[0]?.key ?? 0)
 const current = computed(() => drafts.value.find((d) => d.key === selected.value) ?? null)
 
+// Opened for a name the request uses but nobody defined: the row is there,
+// waiting for its value.
+onMounted(async () => {
+  const wanted = store.openEnvironmentWith
+  if (!wanted) return
+  store.openEnvironmentWith = null
+  if (!current.value) addEnvironment()
+  const draft = current.value
+  if (!draft) return
+  if (!draft.vars.some((v) => v.name === wanted)) {
+    draft.vars = [...draft.vars.filter((v) => v.name), { name: wanted, value: '', secret: false }]
+    draft.dirty = true
+  }
+  await nextTick()
+  const index = draft.vars.findIndex((v) => v.name === wanted)
+  const inputs = document.querySelectorAll<HTMLInputElement>('.ui-dialog .table .row:not(.head) input[aria-label="Value"]')
+  inputs[index]?.focus()
+})
+
 /** Shown inside the dialog: the page's error strip sits behind the backdrop. */
 const saveError = ref<string | null>(null)
 const saving = ref(false)
@@ -80,7 +99,39 @@ const name = computed({
   },
 })
 
+// --- Bulk edit: the same rows as `name=value` lines ------------------------
+// For pasting a block in or out. `# secret` at the end of a line keeps that
+// value out of the YAML; a value's newlines travel as `\n`.
+const bulk = ref(false)
+const bulkText = ref('')
+
+function openBulk() {
+  bulkText.value = named.value
+    .map((v) => `${v.name}=${v.value.replace(/\\/g, '\\\\').replace(/\n/g, '\\n')}${v.secret ? '  # secret' : ''}`)
+    .join('\n')
+  bulk.value = true
+}
+
+function parseBulk(input: string) {
+  bulkText.value = input
+  if (!current.value) return
+  const vars: EnvVar[] = []
+  for (const raw of input.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) continue
+    const secret = /#\s*secret\s*$/i.test(line)
+    const body = secret ? line.replace(/\s*#\s*secret\s*$/i, '') : line
+    const at = body.indexOf('=')
+    const name = (at === -1 ? body : body.slice(0, at)).trim()
+    const value = (at === -1 ? '' : body.slice(at + 1)).replace(/\\(n|\\)/g, (_, c: string) => (c === 'n' ? '\n' : '\\'))
+    if (name) vars.push({ name, value, secret })
+  }
+  current.value.vars = vars
+  current.value.dirty = true
+}
+
 function select(key: number) {
+  bulk.value = false
   selected.value = key
   revealed.value = new Set()
   saveError.value = null
@@ -226,7 +277,25 @@ async function save() {
           Variable names copied from <strong>{{ current.copiedFrom }}</strong>. Fill in the values this environment uses.
         </p>
 
-        <div v-if="current" class="table" role="table" aria-label="Variables">
+        <div v-if="current" class="bar">
+          <button type="button" class="btn btn-quiet btn-sm mode" :aria-pressed="bulk" @click="bulk ? (bulk = false) : openBulk()">
+            {{ bulk ? 'Table' : 'Bulk edit' }}
+          </button>
+        </div>
+
+        <template v-if="current && bulk">
+          <textarea
+            class="field mono bulk"
+            aria-label="Variables as text"
+            spellcheck="false"
+            placeholder="baseUrl=https://api.example.com&#10;token=abc123  # secret"
+            :value="bulkText"
+            @input="parseBulk(($event.target as HTMLTextAreaElement).value)"
+          />
+          <p class="bulk-hint">One per line, <code>name=value</code>. End a line with <code># secret</code> to keep that value out of the YAML.</p>
+        </template>
+
+        <div v-else-if="current" class="table" role="table" aria-label="Variables">
           <div class="row head" role="row">
             <span role="columnheader" class="silk">Variable</span>
             <span role="columnheader" class="silk">Value</span>
@@ -388,6 +457,12 @@ code { font-family: var(--font-mono); font-size: 0.95em; color: var(--ink-2); }
 .copied { margin: 0 0 var(--s-3); color: var(--silk); font-size: var(--t-small); }
 .copied strong { color: var(--ink-2); font-weight: 600; }
 .empty { padding: var(--s-6) 0; color: var(--silk); font-size: var(--t-small); text-align: center; }
+
+.bar { display: flex; justify-content: flex-end; margin-bottom: 2px; }
+.mode { height: 22px; padding: 0 7px; font-size: var(--t-meta); color: var(--silk); }
+.mode[aria-pressed="true"] { background: var(--accent-tint); color: var(--accent-text); }
+.bulk { width: 100%; height: auto; min-height: 200px; padding: var(--s-2) 10px; line-height: 1.6; resize: vertical; }
+.bulk-hint { margin: var(--s-2) 0 0; color: var(--silk); font-size: var(--t-small); }
 
 .table { display: grid; }
 .row {
