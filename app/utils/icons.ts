@@ -8,6 +8,12 @@
  */
 export const ICONS = {
   'chevron-down': '<path d="M4 6l4 4 4-4"/>',
+  // The mark: a bolt, filled, two strokes of a pen.
+  bolt: '<path class="fill" d="M9.4 1.25L3.25 9.1h4.2l-1.1 5.65 6.4-8.2H8.5z"/>',
+  // A request list: a short method stub before each line.
+  requests: '<path d="M2.5 4.25h2.25M7 4.25h6.5M2.5 8h2.25M7 8h6.5M2.5 11.75h2.25M7 11.75h6.5"/>',
+  globe: '<circle cx="8" cy="8" r="6.25"/><path d="M1.75 8h12.5M8 1.75c2.1 2 2.1 10.5 0 12.5M8 1.75c-2.1 2-2.1 10.5 0 12.5"/>',
+  send: '<path d="M2.5 8h10M8.5 4l4 4-4 4"/>',
   'chevron-up': '<path d="M4 10l4-4 4 4"/>',
   'chevron-right': '<path d="M6 4l4 4-4 4"/>',
   folder: '<path d="M1.75 4.25a1 1 0 0 1 1-1h3.1l1.6 1.6h5.8a1 1 0 0 1 1 1v6.4a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1z"/>',

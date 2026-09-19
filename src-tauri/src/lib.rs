@@ -45,6 +45,20 @@ fn init_collection(path: String, name: String) -> Result<collection::Collection>
     collection::init(&PathBuf::from(path), &name)
 }
 
+/// The collection volt falls back to on start: a folder of its own under the
+/// user's documents, made the first time it is asked for.
+#[tauri::command]
+fn default_collection(app: tauri::AppHandle) -> Result<String> {
+    use tauri::Manager as _;
+    let base = app
+        .path()
+        .document_dir()
+        .or_else(|_| app.path().home_dir())
+        .map_err(|e| error::Error::Invalid(format!("no folder to keep a collection in: {e}")))?;
+    let root = collection::ensure_default(&base)?;
+    Ok(root.to_string_lossy().into_owned())
+}
+
 /// Convert a Postman or Insomnia export into a new collection directory
 /// created inside `into`.
 #[tauri::command]
@@ -803,6 +817,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_collection,
             init_collection,
+            default_collection,
             import_collection,
             get_request,
             save_request,

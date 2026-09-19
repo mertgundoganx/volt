@@ -24,7 +24,7 @@ useShortcut('mod+,', 'Settings', () => (editingSettings.value = true))
 useShortcut('?', 'This list', () => (shortcuts.value = true))
 
 // Pane sizes are the user's, so they persist.
-const { value: sidebarWidth, reset: resetSidebar } = usePersistentNumber('volt.sidebarWidth', 272, 220, 460)
+const { value: sidebarWidth, reset: resetSidebar } = usePersistentNumber('volt.sidebarWidth', 264, 200, 480)
 const { value: requestShare, reset: resetRequestShare } = usePersistentNumber('volt.requestShare', 0.5, 0.2, 0.8)
 const workArea = ref<HTMLElement>()
 
@@ -66,44 +66,44 @@ onMounted(() => {
 
 <template>
   <div class="shell">
-    <AppBar
-      :brand-width="sidebarWidth"
-      @edit-environment="editingEnv = true"
-      @open-settings="editingSettings = true"
-    />
+    <Rail @edit-environment="editingEnv = true" @open-settings="editingSettings = true" />
 
-    <div class="body">
-      <Sidebar :style="{ width: `${sidebarWidth}px` }" />
-      <UiSplitter axis="x" label="Sidebar width" @drag="sidebarWidth += $event" @reset="resetSidebar()" />
+    <div class="rest">
+      <AppBar @edit-environment="editingEnv = true" @open-settings="editingSettings = true" />
 
-      <main class="main">
-        <div v-if="store.error" class="error-strip" role="alert">
-          <span class="led bad" />
-          <span class="message mono selectable">{{ store.error }}</span>
-          <button type="button" class="icon-btn quiet sm" aria-label="Dismiss error" title="Dismiss" @click="store.error = null">
-            <UiIcon name="x" :size="14" />
-          </button>
-        </div>
+      <div class="body">
+        <Sidebar :style="{ width: `${sidebarWidth}px` }" />
+        <UiSplitter axis="x" label="Sidebar width" @drag="sidebarWidth += $event" @reset="resetSidebar()" />
 
-        <RequestTabs />
+        <main class="main">
+          <div v-if="store.error" class="error-strip" role="alert">
+            <span class="led bad" />
+            <span class="message mono selectable">{{ store.error }}</span>
+            <button type="button" class="icon-btn quiet sm" aria-label="Dismiss error" title="Dismiss" @click="store.error = null">
+              <UiIcon name="x" :size="14" />
+            </button>
+          </div>
 
-        <div
-          v-if="store.request"
-          ref="workArea"
-          class="work"
-          :style="{ gridTemplateRows: `minmax(150px, ${requestShare}fr) auto minmax(120px, ${1 - requestShare}fr)` }"
-        >
-          <RequestPane />
-          <UiSplitter axis="y" label="Request and response height" @drag="resizeRequest" @reset="resetRequestShare()" />
-          <!-- The bottom pane follows the kind of request: a socket is not a
-               response, and a gRPC reply is not an HTTP one. -->
-          <StreamPane v-if="bottom === 'stream'" />
-          <GrpcReplyPane v-else-if="bottom === 'grpc'" />
-          <ResponsePane v-else />
-        </div>
+          <RequestTabs />
 
-        <Welcome v-else />
-      </main>
+          <div
+            v-if="store.request"
+            ref="workArea"
+            class="work"
+            :style="{ gridTemplateRows: `minmax(150px, ${requestShare}fr) auto minmax(120px, ${1 - requestShare}fr)` }"
+          >
+            <RequestPane />
+            <UiSplitter axis="y" label="Request and response height" @drag="resizeRequest" @reset="resetRequestShare()" />
+            <!-- The bottom pane follows the kind of request: a socket is not a
+                 response, and a gRPC reply is not an HTTP one. -->
+            <StreamPane v-if="bottom === 'stream'" />
+            <GrpcReplyPane v-else-if="bottom === 'grpc'" />
+            <ResponsePane v-else />
+          </div>
+
+          <Welcome v-else />
+        </main>
+      </div>
     </div>
 
     <EnvironmentEditor v-if="editingEnv" @close="editingEnv = false" />
@@ -132,7 +132,8 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.shell { display: flex; flex-direction: column; height: 100%; }
+.shell { display: flex; height: 100%; }
+.rest { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .body { flex: 1; display: flex; min-height: 0; }
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg-1); }
 

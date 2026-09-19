@@ -24,12 +24,38 @@ timings you see are real.
 
 ## How it looks
 
-Dark first, with one electric violet current running through it. The accent
-marks only the things that are *live* — the Send key, the request you are on, a
-`{{variable}}`, the focus ring — and everything else is a cool near-black so
-that current has somewhere to glow. A warning is amber and a failure is red;
-violet is never a status. There is a light theme, measured to the same contrast
-floor, and the choice of System, Light or Dark lives in Settings.
+Like paper. Warm off-white surfaces, ink, hairline rules, and one colour —
+ultramarine — kept for the things that act: the Send key, the request you are
+on, a `{{variable}}`, the focus ring. Nothing glows. The method on a request
+and the status on a response are stamped, a block of colour with the text cut
+out of it. A warning is amber and a failure is red; blue is never a status.
+There is a dark theme — the same paper at night, warm graphite rather than
+blue-black — and two more light ones, Linen and Mist, all measured to the same
+contrast floor. The choice lives in Settings and follows the OS until you make
+one.
+
+On first launch volt opens a collection of its own, kept under your documents
+folder, so the first thing you can do is make a request. Opening a folder
+inside a repository replaces it whenever you are ready.
+
+## Coming from Postman
+
+Most of it is where you expect it. What differs, differs for a reason:
+
+| In Postman | In volt |
+| --- | --- |
+| Workspace → Collections in the sidebar | One collection open at a time; switch with the name in the top bar. A *workspace* here is a named group of collection folders, in the collection menu. |
+| Environment quick look | The environment picker in the top bar; the pencil beside it edits values |
+| Tests tab, `pm.test(...)` | **Tests** tab: a value from the response, a comparison, a value — no script. `volt-run` fails on them in CI. |
+| `pm.environment.set(...)` | **Captures** tab: a path into the response, saved into the environment as a secret |
+| Save as example | **Examples** on the response, kept as a file beside the request and redacted |
+| Mock server (hosted) | Mock server on this machine, from the saved examples |
+| Collection Runner | **Run…** in the collection menu, and the same from a terminal |
+| Duplicate, Ctrl+D | The same |
+| Sync to the cloud | The collection is files in your repository; **Sync…** pulls, commits and pushes it |
+
+Import a Postman export from the collection menu; the scripts it cannot read
+are listed, line by line, rather than dropped.
 
 ## The file format
 
@@ -420,5 +446,5 @@ repository, and monitors that run while volt is open and say so.
 
 MIT — see [LICENSE](LICENSE).
 
-The bundled Archivo and JetBrains Mono typefaces are under the SIL Open Font
+The bundled IBM Plex Sans and IBM Plex Mono typefaces are under the SIL Open Font
 License 1.1; their notices are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

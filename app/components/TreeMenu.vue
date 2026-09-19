@@ -93,6 +93,10 @@ function newRequestFromCurl(folder: string) {
   store.curlDialog = { mode: 'create', parent: folder }
 }
 
+async function duplicate(id: string) {
+  close()
+  await store.duplicate(id)
+}
 async function copyCurl(id: string) {
   close()
   await store.copyCurlFor(id)
@@ -143,6 +147,9 @@ async function remove() {
       </template>
 
       <template v-else>
+        <button type="button" role="menuitem" class="item" @click="duplicate(node.id)">
+          <UiIcon name="copy" :size="15" /><span>Duplicate</span><span class="hint">{{ modKey }} D</span>
+        </button>
         <button type="button" role="menuitem" class="item" @click="copyCurl(node.id)">
           <UiIcon name="copy" :size="15" /><span>Copy as cURL</span><span class="hint">secrets hidden</span>
         </button>
@@ -193,7 +200,7 @@ async function remove() {
   background: var(--bg-3);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
-  box-shadow: var(--rim), var(--shadow-pop);
+  box-shadow: var(--shadow-pop);
   animation: pop 130ms var(--ease);
 }
 

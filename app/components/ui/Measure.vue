@@ -11,10 +11,10 @@ defineProps<{ label: string; value: string | number; unit?: string; tone?: 'ok' 
 </template>
 
 <style scoped>
-.ui-measure { display: grid; gap: 7px; align-content: start; flex: none; }
+.ui-measure { display: grid; gap: 3px; align-content: start; flex: none; }
 .ui-measure .silk { white-space: nowrap; }
-.value { font-size: 15px; font-weight: 500; line-height: 1; white-space: nowrap; }
-.value small { margin-left: 3px; font-size: 10.5px; font-weight: 500; color: var(--silk); }
+.value { font-size: var(--t-body); font-weight: 500; line-height: 1; white-space: nowrap; }
+.value small { margin-left: 2px; font-size: var(--t-micro); font-weight: 500; color: var(--silk); }
 .ok { color: var(--ok); }
 .warn { color: var(--warn); }
 .bad { color: var(--bad); }

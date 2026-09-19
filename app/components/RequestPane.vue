@@ -167,7 +167,7 @@ const tabs = computed<TabItem[]>(() => [
   { key: 'body', label: 'Body', meta: request.value.body.type === 'none' ? null : request.value.body.type },
   { key: 'auth', label: 'Auth', meta: request.value.auth.type },
   { key: 'captures', label: 'Captures', meta: (request.value.captures?.length ?? 0) || null },
-  { key: 'checks', label: 'Checks', meta: (request.value.checks?.length ?? 0) || null },
+  { key: 'checks', label: 'Tests', meta: (request.value.checks?.length ?? 0) || null },
   { key: 'options', label: 'Options', meta: overrides.value || null },
   { key: 'docs', label: 'Docs', dot: !!request.value.docs?.trim() },
 ])
@@ -352,6 +352,9 @@ function setMethod(event: Event) {
 }
 
 useShortcut('mod+enter', 'Send', () => onSend())
+useShortcut('mod+d', 'Duplicate the request', () => {
+  if (store.activeId && !store.historyEntry) store.duplicate(store.activeId)
+})
 useShortcut('mod+s', 'Save the request', () => {
   // A request reopened from history has no file yet; saving it makes one.
   if (store.historyEntry) store.saveHistoryAsNew()
@@ -362,16 +365,18 @@ useShortcut('mod+s', 'Save the request', () => {
 <template>
   <section class="request" aria-label="Request">
     <header class="head">
-      <div class="titles">
-        <input
-          class="title"
-          :value="request.name"
-          aria-label="Request name"
-          spellcheck="false"
-          @input="setName"
-        >
-        <span class="file mono">{{ store.historyEntry ? 'Not saved to a file' : store.activeId }}</span>
-      </div>
+      <input
+        class="title"
+        :value="request.name"
+        aria-label="Request name"
+        spellcheck="false"
+        placeholder="Untitled request"
+        @input="setName"
+      >
+      <span class="file mono" :title="store.historyEntry ? 'Not saved to a file' : (store.activeId ?? '')">
+        {{ store.historyEntry ? 'Not saved to a file' : store.activeId }}
+      </span>
+      <span class="spacer" />
 
       <UiMenuButton :items="curlItems" label="cURL" align="end" @select="onCurlMenu">
         <UiIcon name="braces" :size="14" />cURL
@@ -381,16 +386,14 @@ useShortcut('mod+s', 'Save the request', () => {
         <button v-if="originalExists" type="button" class="btn btn-quiet btn-sm" title="Open the request file this was sent from" @click="store.select(store.historyEntry.requestId!)">
           <UiIcon name="arrow-up-right" :size="14" />Open saved request
         </button>
-        <button type="button" class="btn" title="Write this request into the collection" @click="store.saveHistoryAsNew()">
-          Save as new <span class="kbd">{{ modKey }} S</span>
+        <button type="button" class="btn btn-sm" :title="`Write this request into the collection (${modKey}+S)`" @click="store.saveHistoryAsNew()">
+          Save as new
         </button>
       </template>
       <template v-else>
-        <span v-if="store.dirty" class="state">
-          <span class="led warn" /><span class="silk">Unsaved</span>
-        </span>
-        <button type="button" class="btn" :disabled="!store.dirty" @click="store.save()">
-          Save <span class="kbd">{{ modKey }} S</span>
+        <span v-if="store.dirty" class="state"><span class="led warn" /><span class="silk">Unsaved</span></span>
+        <button type="button" class="btn btn-sm" :disabled="!store.dirty" aria-label="Save request" :title="`Save (${modKey}+S)`" @click="store.save()">
+          Save
         </button>
       </template>
     </header>
@@ -404,18 +407,17 @@ useShortcut('mod+s', 'Save the request', () => {
     </div>
 
     <div class="probe" :class="{ sending: store.sending }">
-      <div class="bar">
       <label v-if="requestKind === 'http'" class="method-pick" :title="`Method: ${request.method}`">
-        <select class="method" :data-method="request.method" :value="request.method" aria-label="Method" @change="setMethod">
+        <select class="method tag" :data-method="request.method" :value="request.method" aria-label="Method" @change="setMethod">
           <option v-for="m in METHODS" :key="m" :value="m">{{ m }}</option>
         </select>
-        <UiIcon name="chevron-down" :size="12" class="chev" />
+        <UiIcon name="chevron-down" :size="11" class="chev" />
       </label>
-      <label v-else class="method-pick kind-pick" title="What kind of request this is">
-        <select class="method" :value="requestKind" aria-label="Kind of request" @change="requestKind = ($event.target as HTMLSelectElement).value as RequestKind">
+      <label v-else class="method-pick" title="What kind of request this is">
+        <select class="method tag" :value="requestKind" aria-label="Kind of request" @change="requestKind = ($event.target as HTMLSelectElement).value as RequestKind">
           <option v-for="kind in KINDS" :key="kind.value" :value="kind.value">{{ kind.label }}</option>
         </select>
-        <UiIcon name="chevron-down" :size="12" class="chev" />
+        <UiIcon name="chevron-down" :size="11" class="chev" />
       </label>
 
       <UiVarInput
@@ -429,17 +431,16 @@ useShortcut('mod+s', 'Save the request', () => {
         @enter="onSend"
         @paste="onUrlPaste"
       />
-      </div>
 
-      <button type="button" class="send" :disabled="store.sending || !request.url" @click="onSend">
+      <button type="button" class="send" :disabled="store.sending || !request.url" :title="`${sendLabel} (${modKey}+Enter)`" @click="onSend">
         <span>{{ sendLabel }}</span>
-        <span class="kbd">{{ modKey }} ↵</span>
+        <UiIcon name="send" :size="14" />
       </button>
     </div>
 
-    <div class="resolved">
+    <div v-if="resolved.value || resolved.missing.length" class="resolved">
       <template v-if="resolved.value">
-        <span class="silk">Resolves to</span>
+        <UiIcon name="arrow-right" :size="12" class="arrow" />
         <span class="value mono selectable" :title="resolved.value">{{ resolved.value }}</span>
       </template>
       <span v-if="resolved.missing.length" class="chip warn" :title="`No value in ${store.environment?.name ?? 'any environment'}`">
@@ -679,7 +680,7 @@ useShortcut('mod+s', 'Save the request', () => {
             What has to be true of the response. The same places a capture reads —
             <code>status</code>, <code>time</code>, <code>header:Name</code>,
             <code>body</code>, <code>$.data.id</code> — with something to compare.
-            A failing check is what makes a run fail.
+            A failing test is what makes a run fail, here and in CI.
           </span>
         </p>
 
@@ -895,38 +896,40 @@ useShortcut('mod+s', 'Save the request', () => {
 .head {
   display: flex;
   align-items: center;
-  gap: var(--s-3);
-  padding: var(--s-4) var(--s-5) var(--s-3);
+  gap: var(--s-2);
+  min-height: 44px;
+  padding: var(--s-2) var(--s-4) var(--s-1);
 }
-.titles { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .title {
-  width: 100%;
+  flex: 0 1 auto;
+  min-width: 80px;
+  max-width: 50%;
   margin-left: -6px;
-  padding: 1px 6px;
+  padding: 2px 6px;
   border: 1px solid transparent;
   border-radius: var(--r-sm);
   background: transparent;
-  font-stretch: 100%;
-  font-weight: 750;
-  font-size: var(--t-title);
-  letter-spacing: -0.022em;
-  line-height: 1.25;
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
   text-overflow: ellipsis;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
 .title:hover { background: var(--hover); }
 .title:focus { background: var(--well); border-color: var(--accent); }
-.file { font-size: var(--t-meta); color: var(--silk); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file { min-width: 0; color: var(--faint); font-size: var(--t-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.state { display: flex; align-items: center; gap: 7px; flex: none; }
+.state { display: flex; align-items: center; gap: 6px; flex: none; padding: 0 4px; }
 .state .silk { color: var(--warn); }
 
 .from-history {
   display: flex;
   align-items: center;
   gap: var(--s-2);
-  margin: 0 var(--s-4) var(--s-3);
-  padding: 7px var(--s-3);
-  border: 1px dashed var(--line);
+  margin: 0 var(--s-4) var(--s-2);
+  padding: 6px var(--s-3);
+  border: 1px dashed var(--line-strong);
   border-radius: var(--r-sm);
   color: var(--ink-2);
   font-size: var(--t-small);
@@ -934,135 +937,88 @@ useShortcut('mod+s', 'Save the request', () => {
 .from-history .ui-icon { color: var(--silk); }
 
 /*
- * The probe: the instrument's primary control. A recessed bar for the method
- * and the URL, and the Send key beside it rather than welded on — so the key
- * can carry the accent, its own glow, and be pressed.
+ * The URL bar: method stamp, address, Send. One bar, because to the person
+ * typing it is one thing — where, and go.
  */
 .probe {
   display: flex;
   align-items: stretch;
-  gap: var(--s-3);
   height: var(--h-probe);
-  margin: 0 var(--s-5);
-  flex: none;
-}
-
-.bar {
-  flex: 1;
-  min-width: 0;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  margin: var(--s-1) var(--s-4) 0;
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: var(--well);
-  box-shadow: var(--rim);
   overflow: hidden;
+  flex: none;
   transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
-.bar:hover { border-color: var(--line-strong); }
-.bar:focus-within {
-  border-color: var(--accent);
-  box-shadow: var(--rim), 0 0 0 3px var(--accent-tint);
-}
+.probe:hover { border-color: var(--line-strong); }
+.probe:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-tint); }
 
-.method-pick { position: relative; display: flex; align-items: center; }
-.method-pick::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  top: 9px;
-  bottom: 9px;
-  width: 1px;
-  background: var(--line);
+.method-pick {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 4px 0 8px;
+  border-right: 1px solid var(--line);
+  flex: none;
 }
 .method-pick .method {
   appearance: none;
-  height: 100%;
-  padding: 0 32px 0 var(--s-4);
+  height: 22px;
+  padding: 0 22px 0 8px;
   border: 0;
-  background: transparent;
-  font-size: 12px;
-  letter-spacing: 0.06em;
+  cursor: default;
 }
-.method-pick .method:focus-visible { outline: none; background: var(--hover); }
-.method-pick option { color: var(--ink); background: var(--bg-3); }
-.method-pick .chev { position: absolute; right: 13px; color: var(--silk); pointer-events: none; }
+.method-pick .method:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.method-pick option { color: var(--ink); background: var(--bg-3); font-family: var(--font-mono); }
+.method-pick .chev { position: absolute; right: 10px; color: var(--on-method); pointer-events: none; }
 
-.url { height: 100%; }
-.url :deep(.mirror), .url :deep(.real) { font-size: 13.5px; }
-.url :deep(.real) { padding-left: var(--s-4); }
-.url :deep(.mirror) { padding-left: var(--s-4); }
+.url { flex: 1; min-width: 0; height: 100%; }
+.url :deep(.mirror), .url :deep(.real) { font-size: 13px; }
+.url :deep(.real), .url :deep(.mirror) { padding-left: var(--s-3); }
 
 /* The one key that does the thing. */
 .send {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: var(--s-3);
-  padding: 0 var(--s-5);
-  border: 1px solid var(--accent-lo);
-  border-radius: var(--r-md);
+  gap: 8px;
+  padding: 0 16px 0 18px;
   background: var(--accent);
   color: var(--accent-ink);
-  font-weight: 700;
-  font-size: 14px;
-  letter-spacing: -0.005em;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.25),
-    0 1px 2px rgba(0, 0, 0, 0.35),
-    0 10px 28px -12px var(--accent);
-  transition:
-    background var(--dur) var(--ease),
-    box-shadow var(--dur) var(--ease),
-    transform var(--dur) var(--ease);
+  font-weight: 600;
+  font-size: var(--t-body);
+  transition: background var(--dur) var(--ease);
 }
-.send .kbd { opacity: 0.7; border-color: rgba(255, 255, 255, 0.35); background: rgba(255, 255, 255, 0.12); }
-.send:hover:not(:disabled) {
-  background: color-mix(in srgb, white 9%, var(--accent));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.32),
-    0 1px 2px rgba(0, 0, 0, 0.35),
-    0 14px 34px -12px var(--accent);
-}
-.send:active:not(:disabled) {
-  transform: translateY(1px);
-  background: var(--accent-lo);
-  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.35);
-}
-.send:disabled {
-  background: var(--bg-2);
-  border-color: var(--line);
-  box-shadow: var(--rim);
-  color: var(--faint);
-}
-.send:focus-visible { outline-offset: 3px; }
+.send:hover:not(:disabled) { background: var(--accent-hi); }
+.send:active:not(:disabled) { background: var(--accent-lo); }
+.send:disabled { background: var(--bg-0); color: var(--faint); border-left: 1px solid var(--line); }
+.send:focus-visible { outline-offset: -3px; }
 
-/* While a request is in flight the key runs current through itself. */
+/* While a request is in flight the key moves. */
 .sending .send:disabled {
-  background:
-    repeating-linear-gradient(-45deg,
-      var(--accent) 0 10px,
-      color-mix(in srgb, var(--accent) 62%, var(--bg-0)) 10px 20px);
-  background-size: 28.3px 28.3px;
-  border-color: var(--accent-lo);
+  background: repeating-linear-gradient(-45deg, var(--accent) 0 8px, var(--accent-lo) 8px 16px);
+  background-size: 22.6px 22.6px;
+  border-left: 0;
   color: var(--accent-ink);
-  box-shadow: 0 0 24px -6px var(--accent);
-  animation: stripes 800ms linear infinite;
+  animation: stripes 700ms linear infinite;
 }
-@keyframes stripes { to { background-position: 28.3px 0; } }
+@keyframes stripes { to { background-position: 22.6px 0; } }
 
 .resolved {
   display: flex;
   align-items: center;
-  gap: var(--s-3);
-  min-height: 32px;
-  padding: 6px var(--s-5) 6px var(--s-5);
+  gap: var(--s-2);
+  min-height: 26px;
+  padding: 4px var(--s-4) 0 calc(var(--s-4) + 8px);
   min-width: 0;
 }
+.resolved .arrow { color: var(--faint); }
 .resolved .value {
   flex: 1;
   min-width: 0;
-  color: var(--ink-2);
+  color: var(--silk);
   font-size: var(--t-meta);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1071,11 +1027,11 @@ useShortcut('mod+s', 'Save the request', () => {
 .resolved .chip { flex: none; }
 
 .curl-notice {
-  margin: 0 var(--s-4) var(--s-3);
-  padding: 7px var(--s-2) 8px var(--s-3);
+  margin: var(--s-2) var(--s-4) 0;
+  padding: 6px var(--s-2) 7px var(--s-3);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  background: var(--well);
+  background: var(--bg-2);
   flex: none;
 }
 .notice-head { display: flex; align-items: center; gap: var(--s-3); min-width: 0; }
@@ -1093,6 +1049,8 @@ useShortcut('mod+s', 'Save the request', () => {
   line-height: 1.5;
 }
 .notice-notes li + li { margin-top: 2px; }
+
+.request :deep(.ui-tabs) { margin-top: var(--s-2); }
 
 .panel { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
 .section { flex: 1; display: flex; flex-direction: column; min-height: 0; }
@@ -1137,7 +1095,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; color: var(--ink-2); }
   background: transparent;
   color: var(--ink);
   font-family: var(--font-ui);
-  font-size: 14px;
+  font-size: var(--t-body);
   line-height: 1.6;
   resize: none;
   max-width: 78ch;
@@ -1180,10 +1138,10 @@ code { font-family: var(--font-mono); font-size: 0.95em; color: var(--ink-2); }
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) 44px 28px;
   gap: var(--s-2);
   align-items: center;
-  min-height: 32px;
+  min-height: 30px;
   border-bottom: 1px solid var(--line-soft);
 }
-.captures .row.head { min-height: 26px; }
+.captures .row.head { min-height: 24px; }
 .captures .row.head .silk:first-child, .captures .row.head .silk:nth-child(2) { padding-left: 9px; }
 .captures .row.blank { border-bottom: 0; }
 .captures .center { display: grid; place-items: center; }
@@ -1200,7 +1158,6 @@ code { font-family: var(--font-mono); font-size: 0.95em; color: var(--ink-2); }
 }
 .secret-toggle.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .secret-toggle:disabled { opacity: 0.3; }
-
 
 .captures .row.check { grid-template-columns: minmax(0, 1.2fr) 130px minmax(0, 1fr) 28px; }
 .captures .row.check.head .silk:nth-child(2) { padding-left: 0; }

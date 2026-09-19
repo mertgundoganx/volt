@@ -22,7 +22,7 @@ useShortcut('mod+w', 'Close the request', () => store.closeTab(store.activeTab))
 </script>
 
 <template>
-  <div v-if="store.tabs.length" class="tabs" role="tablist" aria-label="Open requests">
+  <div v-if="store.isOpen" class="tabs" role="tablist" aria-label="Open requests">
     <div v-for="(tab, i) in store.tabs" :key="i" class="tab" :class="{ on: i === store.activeTab }">
       <button
         type="button"
@@ -48,6 +48,9 @@ useShortcut('mod+w', 'Close the request', () => store.closeTab(store.activeTab))
         <UiIcon v-else name="x" :size="12" />
       </button>
     </div>
+    <button type="button" class="add" aria-label="New request" title="New request" @click="store.createRequest(null)">
+      <UiIcon name="plus" :size="14" />
+    </button>
   </div>
 </template>
 
@@ -55,12 +58,13 @@ useShortcut('mod+w', 'Close the request', () => store.closeTab(store.activeTab))
 .tabs {
   display: flex;
   align-items: stretch;
-  gap: 2px;
-  padding: 5px var(--s-3) 0;
+  height: 36px;
+  padding: 0 var(--s-2) 0 0;
   border-bottom: 1px solid var(--line);
   background: var(--bg-0);
   overflow-x: auto;
   scrollbar-width: none;
+  flex: none;
 }
 .tabs::-webkit-scrollbar { display: none; }
 
@@ -69,31 +73,27 @@ useShortcut('mod+w', 'Close the request', () => store.closeTab(store.activeTab))
   display: flex;
   align-items: center;
   flex: none;
-  max-width: 230px;
-  border: 1px solid transparent;
-  border-bottom: 0;
-  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  max-width: 220px;
+  margin-bottom: -1px;
+  border-right: 1px solid var(--line);
   color: var(--silk);
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .tab:hover { background: var(--hover); color: var(--ink-2); }
-/* The open request's tab is the panel itself, pulled up over the rule, with the
-   current running along its top edge. */
+/* The open request's tab is the surface itself, joined to the pane below. */
 .tab.on {
   background: var(--bg-1);
-  border-color: var(--line);
   color: var(--ink);
+  border-bottom: 1px solid var(--bg-1);
 }
-.tab.on::after {
+.tab.on::before {
   content: "";
   position: absolute;
-  left: -1px;
-  right: -1px;
-  top: -1px;
+  left: 0;
+  right: 0;
+  top: 0;
   height: 2px;
-  border-radius: var(--r-full);
   background: var(--accent);
-  box-shadow: 0 0 10px -1px var(--accent);
 }
 
 .face {
@@ -101,11 +101,12 @@ useShortcut('mod+w', 'Close the request', () => store.closeTab(store.activeTab))
   align-items: center;
   gap: var(--s-2);
   min-width: 0;
-  padding: 8px var(--s-2) 8px var(--s-3);
+  height: 100%;
+  padding: 0 4px 0 var(--s-3);
   color: inherit;
 }
 .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-small); }
-.tab.on .label { font-weight: 600; }
+.tab.on .label { font-weight: 500; }
 .replay { flex: none; color: var(--faint); }
 
 .close {
@@ -118,5 +119,14 @@ useShortcut('mod+w', 'Close the request', () => store.closeTab(store.activeTab))
   color: var(--faint);
 }
 .close:hover { background: var(--press); color: var(--ink); }
-.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 8px -1px var(--warn); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+
+.add {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  flex: none;
+  color: var(--silk);
+}
+.add:hover { color: var(--ink); background: var(--hover); }
 </style>

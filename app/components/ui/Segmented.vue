@@ -40,14 +40,15 @@ function onKey(event: KeyboardEvent, index: number) {
 </template>
 
 <style scoped>
+/* A row of choices cut from one strip; the chosen one is lifted to the surface. */
 .ui-seg {
   display: inline-flex;
   flex: none;
   gap: 2px;
-  padding: 3px;
+  padding: 2px;
   border: 1px solid var(--line);
-  border-radius: var(--r-full);
-  background: var(--well);
+  border-radius: var(--r-sm);
+  background: var(--bg-0);
 }
 
 .opt {
@@ -55,23 +56,23 @@ function onKey(event: KeyboardEvent, index: number) {
   align-items: center;
   gap: 6px;
   height: 24px;
-  padding: 0 var(--s-2);
-  border-radius: var(--r-full);
-  color: var(--ink-2);
+  padding: 0 10px;
+  border-radius: 4px;
+  color: var(--silk);
   font-size: var(--t-small);
-  font-weight: 600;
+  font-weight: 500;
   white-space: nowrap;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-.opt:hover:not(.on) { background: var(--hover); color: var(--ink); }
+.opt:hover:not(.on) { color: var(--ink); }
 .opt.on {
-  background: var(--accent);
-  color: var(--accent-ink);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 3px 12px -4px var(--accent);
+  background: var(--bg-2);
+  color: var(--ink);
+  box-shadow: 0 0 0 1px var(--line);
 }
 .opt:focus-visible { outline-offset: 1px; }
 
-.mono .opt { font-family: var(--font-mono); font-size: var(--t-meta); font-weight: 500; }
-.sm .opt { height: 20px; padding: 0 7px; font-size: 11.5px; }
+.mono .opt { font-family: var(--font-mono); font-size: var(--t-meta); }
+.sm .opt { height: 20px; padding: 0 8px; font-size: var(--t-label); }
 .sm.mono .opt { font-size: 11px; }
 </style>

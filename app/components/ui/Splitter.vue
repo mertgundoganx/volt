@@ -60,15 +60,13 @@ function onKey(event: KeyboardEvent) {
 <style scoped>
 .ui-splitter { position: relative; flex: none; z-index: 2; }
 .ui-splitter:focus-visible { outline-offset: -2px; }
-
 /* Between columns: a hairline with a wider grab area. */
 .x { width: 1px; background: var(--line); cursor: col-resize; }
 .x::before { content: ""; position: absolute; inset: 0 -4px; }
-.x:hover, .x.active { background: var(--accent); box-shadow: 0 0 12px -2px var(--accent); }
-
-/* Between rows: a thin chrome bar with grip lines. */
+.x:hover, .x.active { background: var(--accent); }
+/* Between rows: a thin band of chrome. */
 .y {
-  height: 10px;
+  height: 7px;
   display: grid;
   place-items: center;
   background: var(--bg-0);
@@ -76,13 +74,6 @@ function onKey(event: KeyboardEvent) {
   border-bottom: 1px solid var(--line);
   cursor: row-resize;
 }
-.y i {
-  width: 26px;
-  height: 4px;
-  border-top: 1px solid var(--silk);
-  border-bottom: 1px solid var(--silk);
-  opacity: 0.6;
-  transition: opacity var(--dur) var(--ease);
-}
-.y:hover i, .y.active i { opacity: 1; border-color: var(--accent); }
+.y i { width: 24px; height: 2px; border-radius: 1px; background: var(--line-strong); transition: background var(--dur) var(--ease); }
+.y:hover i, .y.active i { background: var(--accent); }
 </style>

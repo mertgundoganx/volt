@@ -1,12 +1,12 @@
 /*
  * Base elements and the small shared vocabulary every component speaks:
- * .silk (small caps label), .btn, .icon-btn, .field, .led, .method, .var,
- * .kbd, .chip. Anything bigger is a component in components/ui/.
+ * .silk (a label), .btn, .icon-btn, .field, .led, .method, .var, .kbd, .chip.
+ * Anything bigger is a component in components/ui/.
  *
- * The shapes here carry the design language: a control is a surface lifted off
- * the panel with a rim of light along its top edge, it brightens under the
- * pointer and sinks when pressed, and anything that is *live* — focused,
- * selected, sending — is wearing the accent.
+ * Everything here is flat. A control is a rectangle with a hairline and a
+ * fill; it darkens a step under the pointer and another when pressed. What is
+ * live — focused, selected, the Send key — wears the accent, and nothing else
+ * does.
  */
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -17,9 +17,9 @@ body {
   background: var(--bg-1);
   color: var(--ink);
   font: 400 var(--t-body) / 1.45 var(--font-ui);
-  font-optical-sizing: auto;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  font-feature-settings: "ss02" 0;
   overflow: hidden;
   user-select: none;          /* a desktop tool, not a document */
   cursor: default;
@@ -40,20 +40,20 @@ svg { flex: none; }
   outline-offset: 2px;
   border-radius: var(--r-xs);
 }
-/* Text entry shows focus with its own border and ring; an outline on top doubles it. */
+/* Text entry shows focus with its own border; an outline on top doubles it. */
 input:not([type="checkbox"]):not([type="radio"]):focus-visible,
 textarea:focus-visible,
 select:focus-visible { outline: none; }
 
-::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--silk) 32%, transparent);
+  background: color-mix(in srgb, var(--silk) 35%, transparent);
   border: 3px solid transparent;
   background-clip: content-box;
   border-radius: var(--r-full);
 }
-::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--silk) 58%, transparent); }
+::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--silk) 60%, transparent); }
 ::-webkit-scrollbar-corner { background: transparent; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -64,23 +64,19 @@ select:focus-visible { outline: none; }
 /* Type                                                                     */
 /* ------------------------------------------------------------------------ */
 
-/* The small caps label printed beside a control. Never put a *value* in one:
-   it uppercases, so a name or a type signature comes out shouting. */
+/* The label beside a control or over a column. Quiet, sentence case. Never
+   put a *value* in one: it is styled as a name for something, not the thing. */
 .silk {
   font-family: var(--font-ui);
-  font-stretch: 78%;
-  font-weight: 680;
+  font-weight: 500;
   font-size: var(--t-label);
-  line-height: 1;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  line-height: 1.2;
   color: var(--silk);
 }
 
 .mono {
   font-family: var(--font-mono);
   font-variant-ligatures: none;
-  font-feature-settings: "zero" 0;
 }
 
 .num { font-variant-numeric: tabular-nums; }
@@ -89,14 +85,14 @@ select:focus-visible { outline: none; }
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  height: 18px;
-  padding: 0 5px;
-  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  height: 17px;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-bottom-width: 2px;
   border-radius: var(--r-xs);
-  background: color-mix(in srgb, currentColor 8%, transparent);
-  font: 550 10px / 1 var(--font-mono);
+  font: 500 10.5px / 1 var(--font-mono);
   color: inherit;
-  opacity: 0.75;
+  opacity: 0.7;
   white-space: nowrap;
 }
 
@@ -104,107 +100,67 @@ select:focus-visible { outline: none; }
 /* Buttons                                                                  */
 /* ------------------------------------------------------------------------ */
 
-/*
- * A key: a surface lifted off the panel, a rim of light along its top edge,
- * and it sinks when pressed.
- */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--s-2);
+  gap: 6px;
   height: var(--h-control);
-  padding: 0 var(--s-4);
+  padding: 0 var(--s-3);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   background: var(--bg-2);
-  box-shadow: var(--rim), var(--shadow-1);
   color: var(--ink);
-  font-weight: 600;
+  font-weight: 500;
   font-size: var(--t-body);
-  letter-spacing: -0.005em;
   white-space: nowrap;
-  transition:
-    background var(--dur) var(--ease),
-    border-color var(--dur) var(--ease),
-    box-shadow var(--dur) var(--ease),
-    transform var(--dur) var(--ease);
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
-.btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--ink) 7%, var(--bg-2));
-  border-color: var(--line-strong);
-}
-.btn:active:not(:disabled) { transform: translateY(1px); box-shadow: none; }
-.btn:disabled { opacity: 0.4; }
+.btn:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 5%, var(--bg-2)); border-color: var(--line-strong); }
+.btn:active:not(:disabled) { background: color-mix(in srgb, var(--ink) 10%, var(--bg-2)); }
+.btn:disabled { opacity: 0.45; }
 
-/*
- * The confirming action, and the accent's home. Violet means live: this is the
- * button that does the thing, and there is only ever one of them on a screen.
- */
+/* The confirming action. One per screen. */
 .btn-primary {
   background: var(--accent);
-  border-color: var(--accent-lo);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    0 1px 2px rgba(0, 0, 0, 0.3),
-    0 6px 18px -8px var(--accent);
+  border-color: var(--accent);
   color: var(--accent-ink);
 }
-.btn-primary:hover:not(:disabled) {
-  background: color-mix(in srgb, white 9%, var(--accent));
-  border-color: var(--accent);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    0 1px 2px rgba(0, 0, 0, 0.3),
-    0 10px 26px -8px var(--accent);
-}
-.btn-primary:active:not(:disabled) {
-  transform: translateY(1px);
-  background: var(--accent-lo);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
-}
+.btn-primary:hover:not(:disabled) { background: var(--accent-hi); border-color: var(--accent-hi); }
+.btn-primary:active:not(:disabled) { background: var(--accent-lo); border-color: var(--accent-lo); }
 
 .btn-quiet {
   background: transparent;
   border-color: transparent;
-  box-shadow: none;
   color: var(--ink-2);
 }
 .btn-quiet:hover:not(:disabled) { background: var(--hover); border-color: transparent; color: var(--ink); }
+.btn-quiet:active:not(:disabled) { background: var(--press); }
 
 .btn-danger { color: var(--bad); }
-.btn-danger:hover:not(:disabled) {
-  background: var(--bad-tint);
-  border-color: color-mix(in srgb, var(--bad) 45%, transparent);
-}
+.btn-danger:hover:not(:disabled) { background: var(--bad-tint); border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
 
-.btn-sm { height: 26px; padding: 0 var(--s-3); font-size: var(--t-small); gap: 6px; }
+.btn-sm { height: 26px; padding: 0 10px; font-size: var(--t-small); gap: 5px; }
 
 .icon-btn {
   display: inline-grid;
   place-items: center;
-  width: 30px;
+  width: 28px;
   height: 28px;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   background: var(--bg-2);
-  box-shadow: var(--rim), var(--shadow-1);
-  color: var(--ink);
-  transition:
-    background var(--dur) var(--ease),
-    border-color var(--dur) var(--ease),
-    color var(--dur) var(--ease),
-    transform var(--dur) var(--ease);
+  color: var(--ink-2);
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-.icon-btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--ink) 7%, var(--bg-2));
-  border-color: var(--line-strong);
-}
-.icon-btn:active:not(:disabled) { transform: translateY(1px); box-shadow: none; }
-.icon-btn:disabled { opacity: 0.35; }
-.icon-btn.quiet { border-color: transparent; background: transparent; box-shadow: none; color: var(--silk); }
+.icon-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 5%, var(--bg-2)); border-color: var(--line-strong); color: var(--ink); }
+.icon-btn:active:not(:disabled) { background: color-mix(in srgb, var(--ink) 10%, var(--bg-2)); }
+.icon-btn:disabled { opacity: 0.4; }
+.icon-btn.quiet { border-color: transparent; background: transparent; color: var(--silk); }
 .icon-btn.quiet:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.icon-btn.quiet:active:not(:disabled) { background: var(--press); }
 .icon-btn.sm { width: 24px; height: 24px; border-radius: var(--r-xs); }
+.icon-btn.on { background: var(--accent-tint); color: var(--accent-text); border-color: transparent; }
 
 /* ------------------------------------------------------------------------ */
 /* Fields                                                                   */
@@ -213,7 +169,7 @@ select:focus-visible { outline: none; }
 .field {
   width: 100%;
   height: var(--h-control);
-  padding: 0 var(--s-3);
+  padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   background: var(--well);
@@ -223,52 +179,45 @@ select:focus-visible { outline: none; }
 }
 .field::placeholder, textarea::placeholder { color: var(--faint); opacity: 1; }
 .field:hover { border-color: var(--line-strong); }
-.field:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-tint);
-}
+.field:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-tint); }
 .field.mono { font-family: var(--font-mono); font-size: var(--t-code); }
-.field.invalid { border-color: var(--bad); box-shadow: 0 0 0 3px var(--bad-tint); }
+.field.invalid { border-color: var(--bad); box-shadow: 0 0 0 2px var(--bad-tint); }
 
 /* Flush with a table row until touched. */
 .field.inline {
-  height: 28px;
+  height: 26px;
   padding: 0 var(--s-2);
   border-color: transparent;
   background: transparent;
 }
 .field.inline:hover { background: var(--hover); border-color: transparent; }
-.field.inline:focus { background: var(--well); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
+.field.inline:focus { background: var(--well); border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-tint); }
 
-textarea.field { height: auto; padding: var(--s-2) var(--s-3); resize: none; line-height: 1.55; }
+textarea.field { height: auto; padding: var(--s-2) 10px; resize: none; line-height: 1.55; }
 
 input[type="checkbox"]:not(.switch) {
   appearance: none;
   display: inline-grid;
   place-items: center;
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
   margin: 0;
   border: 1.5px solid var(--line-strong);
-  border-radius: var(--r-xs);
+  border-radius: 3px;
   background: var(--well);
-  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
 input[type="checkbox"]:not(.switch)::after {
   content: "";
   width: 7px;
   height: 3.5px;
   margin-top: -2px;
-  border-left: 1.9px solid var(--accent-ink);
-  border-bottom: 1.9px solid var(--accent-ink);
+  border-left: 1.8px solid var(--accent-ink);
+  border-bottom: 1.8px solid var(--accent-ink);
   transform: rotate(-45deg);
   opacity: 0;
 }
-input[type="checkbox"]:not(.switch):checked {
-  background: var(--accent);
-  border-color: var(--accent);
-  box-shadow: 0 2px 8px -3px var(--accent);
-}
+input[type="checkbox"]:not(.switch):checked { background: var(--accent); border-color: var(--accent); }
 input[type="checkbox"]:not(.switch):checked::after { opacity: 1; }
 input[type="checkbox"]:disabled { opacity: 0.35; }
 
@@ -277,37 +226,33 @@ input[type="checkbox"].switch {
   appearance: none;
   position: relative;
   flex: none;
-  width: 32px;
-  height: 19px;
+  width: 30px;
+  height: 18px;
   margin: 0;
-  border: 1.5px solid var(--line-strong);
+  border: 0;
   border-radius: var(--r-full);
-  background: var(--well);
-  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  background: var(--line-strong);
+  transition: background var(--dur) var(--ease);
 }
 input[type="checkbox"].switch::after {
   content: "";
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  background: var(--silk);
-  transition: transform var(--dur) var(--ease), background var(--dur) var(--ease);
+  background: var(--bg-2);
+  transition: transform var(--dur) var(--ease);
 }
-input[type="checkbox"].switch:checked {
-  background: var(--accent);
-  border-color: var(--accent);
-  box-shadow: 0 2px 10px -3px var(--accent);
-}
-input[type="checkbox"].switch:checked::after { transform: translateX(13px); background: var(--accent-ink); }
+input[type="checkbox"].switch:checked { background: var(--accent); }
+input[type="checkbox"].switch:checked::after { transform: translateX(12px); }
 
 /* ------------------------------------------------------------------------ */
 /* Small marks                                                              */
 /* ------------------------------------------------------------------------ */
 
-/* A status lamp, with the halo a lit lamp throws. */
+/* A dot that carries a state. */
 .led {
   display: inline-block;
   flex: none;
@@ -315,30 +260,16 @@ input[type="checkbox"].switch:checked::after { transform: translateX(13px); back
   height: 7px;
   border-radius: 50%;
   background: var(--silk);
-  box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--silk) 18%, transparent);
 }
-.led.ok {
-  background: var(--ok);
-  box-shadow: 0 0 0 2.5px var(--ok-tint), 0 0 10px -1px var(--ok);
-}
-.led.warn {
-  background: var(--warn);
-  box-shadow: 0 0 0 2.5px var(--warn-tint), 0 0 10px -1px var(--warn);
-}
-.led.bad {
-  background: var(--bad);
-  box-shadow: 0 0 0 2.5px var(--bad-tint), 0 0 10px -1px var(--bad);
-}
-.led.live {
-  background: var(--accent);
-  box-shadow: 0 0 0 2.5px var(--accent-tint), 0 0 12px -1px var(--accent);
-}
+.led.ok { background: var(--ok); }
+.led.warn { background: var(--warn); }
+.led.bad { background: var(--bad); }
+.led.live { background: var(--accent); }
 .led.off { background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint); }
 
 .method {
   display: inline-block;
-  font: 700 10px / 1 var(--font-mono);
-  letter-spacing: 0.04em;
+  font: 600 10.5px / 1 var(--font-mono);
   text-transform: uppercase;
   color: var(--m-other);
   white-space: nowrap;
@@ -349,14 +280,14 @@ input[type="checkbox"].switch:checked::after { transform: translateX(13px); back
 .method[data-method="PATCH"] { color: var(--m-patch); }
 .method[data-method="DELETE"] { color: var(--m-delete); }
 
-/* The same, as a filled tag — for the one place a method is the headline. */
+/* The same as a stamp — for the one place the method is the headline. */
 .method.tag {
-  padding: 0 7px;
-  height: 20px;
   display: inline-flex;
   align-items: center;
+  height: 20px;
+  padding: 0 7px;
   border-radius: var(--r-xs);
-  color: var(--bg-0);
+  color: var(--on-method);
   background: var(--m-other);
 }
 .method.tag[data-method="GET"] { background: var(--m-get); }
@@ -365,43 +296,38 @@ input[type="checkbox"].switch:checked::after { transform: translateX(13px); back
 .method.tag[data-method="PATCH"] { background: var(--m-patch); }
 .method.tag[data-method="DELETE"] { background: var(--m-delete); }
 
-/* A {{variable}} inside mono text — the accent, because that is what it is. */
+/* A {{variable}} inside mono text. */
 .var {
   color: var(--var);
   background: var(--var-bg);
-  border-radius: var(--r-xs);
-  box-shadow: 0 0 0 1px var(--var-line);
-  padding: 0 1px;
+  border-radius: 3px;
+  padding: 1px 0;
 }
 .var.missing {
   color: var(--warn);
   background: var(--warn-tint);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--warn) 40%, transparent);
-  text-decoration: underline dotted;
+  text-decoration: underline wavy;
+  text-decoration-color: color-mix(in srgb, var(--warn) 60%, transparent);
   text-underline-offset: 3px;
 }
 
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 22px;
-  padding: 0 var(--s-2);
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
   border: 1px solid var(--line);
-  border-radius: var(--r-full);
+  border-radius: var(--r-xs);
   background: var(--bg-2);
-  font: 550 var(--t-meta) / 1 var(--font-mono);
+  font: 500 var(--t-meta) / 1 var(--font-mono);
   color: var(--ink-2);
   white-space: nowrap;
 }
-.chip.accent {
-  color: var(--accent-text);
-  border-color: var(--accent-line);
-  background: var(--accent-tint);
-}
-.chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); background: var(--ok-tint); }
-.chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: var(--warn-tint); }
-.chip.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); background: var(--bad-tint); }
+.chip.accent { color: var(--accent-text); border-color: var(--accent-line); background: var(--accent-tint); }
+.chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); background: var(--ok-tint); }
+.chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: var(--warn-tint); }
+.chip.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, transparent); background: var(--bad-tint); }
 
 .spacer { flex: 1; }
 

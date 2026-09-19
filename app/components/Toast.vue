@@ -39,7 +39,7 @@ const store = useCollectionStore()
   background: var(--bg-3);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
-  box-shadow: var(--rim), var(--shadow-pop);
+  box-shadow: var(--shadow-pop);
   pointer-events: auto;
 }
 .led { margin-top: 5px; }

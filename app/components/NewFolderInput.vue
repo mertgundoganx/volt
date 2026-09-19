@@ -6,9 +6,12 @@ const { stopCreatingFolder } = useTreeMenu()
 // Enter and blur can both fire for one commit; only act on the first.
 let done = false
 
-function focusInput(el: Element | ComponentPublicInstance | null) {
-  ;(el as HTMLInputElement | null)?.focus()
-}
+// Focused after mount, not through a function ref: Vue calls a function ref
+// while the element's subtree is still being assembled, before it is in the
+// document, and focus() on a detached input does nothing. The field then sat
+// there with the caret nowhere, and everything typed went to the page.
+const input = ref<HTMLInputElement>()
+onMounted(() => input.value?.focus())
 
 async function commit(value: string) {
   if (done) return
@@ -27,7 +30,7 @@ function cancel() {
   <div class="new-folder" :style="{ paddingLeft: `${12 + depth * 16}px` }">
     <UiIcon name="folder-plus" :size="14" />
     <input
-      :ref="focusInput"
+      ref="input"
       class="field"
       placeholder="Folder name"
       aria-label="New folder name"

@@ -31,7 +31,7 @@ function onKey(event: KeyboardEvent, index: number) {
       @click="model = item.key"
       @keydown="onKey($event, index)"
     >
-      <span class="silk">{{ item.label }}</span>
+      <span class="silk name">{{ item.label }}</span>
       <span v-if="item.meta !== undefined && item.meta !== null && item.meta !== ''" class="meta mono">{{ item.meta }}</span>
       <span v-if="item.dot" class="dot" aria-label="has content" />
     </button>
@@ -45,9 +45,9 @@ function onKey(event: KeyboardEvent, index: number) {
 .ui-tabs {
   display: flex;
   align-items: stretch;
-  gap: var(--s-5);
-  height: 38px;
-  padding: 0 var(--s-5);
+  gap: var(--s-4);
+  height: 36px;
+  padding: 0 var(--s-4);
   border-bottom: 1px solid var(--line);
   flex: none;
 }
@@ -56,40 +56,40 @@ function onKey(event: KeyboardEvent, index: number) {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   padding: 0 1px;
   border-radius: 0;
 }
-/* The live tab is underlined in the accent, and the line glows a little. */
+.ui-tab .name { font-size: var(--t-small); font-weight: 500; color: var(--silk); transition: color var(--dur) var(--ease); }
+/* The open tab is underlined; nothing else moves. */
 .ui-tab::after {
   content: "";
   position: absolute;
-  left: -2px;
-  right: -2px;
+  left: 0;
+  right: 0;
   bottom: -1px;
   height: 2px;
-  border-radius: var(--r-full) var(--r-full) 0 0;
   background: transparent;
-  transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  transition: background var(--dur) var(--ease);
 }
-.ui-tab:hover .silk { color: var(--ink-2); }
-.ui-tab.on .silk { color: var(--ink); }
-.ui-tab.on::after { background: var(--accent); box-shadow: 0 0 10px -1px var(--accent); }
-.ui-tab:focus-visible { outline-offset: 3px; border-radius: var(--r-xs); }
+.ui-tab:hover .name { color: var(--ink); }
+.ui-tab.on .name { color: var(--ink); }
+.ui-tab.on::after { background: var(--accent); }
+.ui-tab:focus-visible { outline-offset: -2px; border-radius: var(--r-xs); }
 
 .meta {
   display: inline-flex;
   align-items: center;
   height: 16px;
   padding: 0 5px;
-  border-radius: var(--r-full);
+  border-radius: var(--r-xs);
   background: var(--hover);
-  font-size: 10px;
-  font-weight: 550;
+  font-size: var(--t-micro);
+  font-weight: 500;
   color: var(--silk);
 }
 .ui-tab.on .meta { color: var(--accent-text); background: var(--accent-tint); }
-.dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px -1px var(--accent); }
+.dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
 
 .end { margin-left: auto; display: flex; align-items: center; gap: var(--s-2); }
 </style>

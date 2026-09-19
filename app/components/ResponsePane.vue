@@ -24,13 +24,6 @@ const pretty = computed(() => {
 const shown = computed(() => (view.value === 'pretty' && pretty.value.isJson ? pretty.value.text : (res.value?.body ?? '')))
 const language = computed(() => (view.value === 'pretty' && pretty.value.isJson ? 'json' : 'text'))
 
-/** Share of the total time spent waiting for the first byte. */
-const waitShare = computed(() => {
-  const r = res.value
-  if (!r || r.durationMs <= 0) return 0
-  return Math.min(100, Math.max(0, (r.timeToFirstByteMs / r.durationMs) * 100))
-})
-
 const redirected = computed(() => {
   const r = res.value
   return !!r && !!r.finalUrl && r.finalUrl !== r.sentUrl
@@ -189,48 +182,22 @@ async function copyBody() {
 
 <template>
   <section class="response" aria-label="Response" aria-live="polite">
-    <div class="readout">
-      <template v-if="store.sending">
-        <div class="status">
-          <span class="led" />
-          <span class="code mono">···</span>
-        </div>
-        <span class="silk">Measuring</span>
-        <span class="scan" aria-hidden="true" />
-      </template>
-
-      <template v-else-if="res">
-        <div class="status" :class="tone">
-          <span class="led" :class="tone" />
-          <span class="code mono num">{{ res.status }}</span>
-          <span class="silk">{{ res.statusText }}</span>
-        </div>
-        <UiMeasure label="Time" :value="res.durationMs" unit="ms" />
-        <UiMeasure label="First byte" :value="res.timeToFirstByteMs" unit="ms" />
-        <UiMeasure label="Size" :value="size.value" :unit="size.unit" />
-        <div class="timing" :title="`Waited ${res.timeToFirstByteMs} ms, then ${Math.max(0, res.durationMs - res.timeToFirstByteMs)} ms transferring`">
-          <span class="silk">Wait · Transfer</span>
-          <span class="bar"><span class="wait" :style="{ width: `${waitShare}%` }" /><span class="transfer" /></span>
-        </div>
-        <span class="spacer" />
-        <span v-if="res.missingVars.length" class="chip warn" :title="`Sent without a value: ${res.missingVars.join(', ')}`">
-          <UiIcon name="warning" :size="12" />{{ res.missingVars.length }} undefined
-        </span>
-      </template>
-
-      <template v-else>
-        <div class="status idle">
-          <span class="led off" />
-          <span class="code mono">---</span>
-        </div>
-        <span class="idle-note">No reading yet. Send the request <span class="kbd">{{ modKey }} ↵</span></span>
-      </template>
-    </div>
-
     <template v-if="res && !store.sending">
       <UiTabs v-model="tab" :items="tabs" label="Response sections">
         <template #end>
+          <div class="reading">
+            <span class="status" :class="tone">
+              <span class="led" :class="tone" />
+              <span class="num">{{ res.status }}</span><span class="text">{{ res.statusText }}</span>
+            </span>
+            <span class="measure mono num" :title="`First byte after ${res.timeToFirstByteMs} ms, ${Math.max(0, res.durationMs - res.timeToFirstByteMs)} ms transferring`">{{ res.durationMs }} ms</span>
+            <span class="measure mono num">{{ size.value }} {{ size.unit }}</span>
+            <span v-if="res.missingVars.length" class="chip warn" :title="`Sent without a value: ${res.missingVars.join(', ')}`">
+              <UiIcon name="warning" :size="12" />{{ res.missingVars.length }} undefined
+            </span>
+          </div>
           <template v-if="tab === 'body' && res.body">
+            <span class="tools-sep" />
             <template v-if="!res.bodyIsBase64">
               <UiSegmented
                 v-if="pretty.isJson"
@@ -287,7 +254,7 @@ async function copyBody() {
       </div>
 
       <div v-if="store.checkResults.length" class="checks" :class="{ failed: store.checkResults.some((check) => !check.ok) }">
-        <span class="silk">Checks</span>
+        <span class="silk">Tests</span>
         <span v-for="(check, i) in store.checkResults" :key="i" class="check" :class="{ bad: !check.ok }">
           <span class="led" :class="check.ok ? 'ok' : 'bad'" />
           <span class="mono">{{ check.from }}</span>
@@ -415,13 +382,27 @@ async function copyBody() {
       </div>
     </template>
 
-    <div v-else class="viewer blank">
-      <div class="nothing">
-        <span class="glyph" aria-hidden="true">{ }</span>
-        <p v-if="store.sending">Waiting for the response…</p>
-        <p v-else>The body and headers of the response show up here.</p>
+    <template v-else>
+      <div class="idle-bar" :class="{ sending: store.sending }">
+        <template v-if="store.sending">
+          <span class="led live" />
+          <span class="silk">Sending</span>
+          <span class="progress" aria-hidden="true"><i /></span>
+        </template>
+        <template v-else>
+          <span class="led off" />
+          <span class="silk">No response yet</span>
+          <span class="idle-hint">Send the request <span class="kbd">{{ modKey }} ↵</span></span>
+        </template>
       </div>
-    </div>
+      <div class="viewer blank">
+        <div class="nothing">
+          <span class="glyph mono" aria-hidden="true">{ }</span>
+          <p v-if="store.sending">Waiting for the response…</p>
+          <p v-else>The body and headers of the response show up here.</p>
+        </div>
+      </div>
+    </template>
   </section>
 </template>
 
@@ -433,81 +414,60 @@ async function copyBody() {
   min-width: 0;
   background: var(--well);
   --code-bg: var(--well);
-  /* The readout adapts to the pane, which the sidebar and splitter resize. */
   container-type: inline-size;
 }
 
-/* The instrument readout. */
-/*
- * The reading. The status is the loudest thing on the screen and wears the
- * colour of what happened; the measurements sit beside it in their own light.
- */
-.readout {
+/* The reading sits at the right of the tab row: what came back, how fast, how big. */
+.reading { display: flex; align-items: center; gap: var(--s-3); flex: none; min-width: 0; }
+/* The status is a stamp, like the method on the request: what came back, sealed. */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--r-xs);
+  background: var(--m-other);
+  color: var(--on-method);
+  font: 600 11px / 1 var(--font-mono);
+  white-space: nowrap;
+}
+.status .led { display: none; }
+.status .text { margin-left: 4px; }
+.status.ok { background: var(--ok); }
+.status.warn { background: var(--warn); }
+.status.bad { background: var(--bad); }
+.measure { color: var(--silk); font-size: var(--t-meta); white-space: nowrap; }
+.tools-sep { width: 1px; height: 16px; background: var(--line); margin: 0 2px; }
+
+.idle-bar {
   display: flex;
   align-items: center;
-  gap: var(--s-8);
-  min-height: 74px;
-  padding: var(--s-3) var(--s-5);
+  gap: var(--s-2);
+  height: 36px;
+  padding: 0 var(--s-4);
   border-bottom: 1px solid var(--line);
-  background: var(--bg-2);
   flex: none;
-  min-width: 0;
-  overflow: hidden;
 }
-
-.readout > * { flex: none; }
-.readout > .spacer { flex: 1; }
-
-.status { display: flex; align-items: baseline; gap: 10px; flex: none; }
-.status .led { align-self: center; width: 9px; height: 9px; }
-.code {
-  font-size: var(--t-readout);
-  font-weight: 750;
-  line-height: 1;
-  letter-spacing: -0.04em;
-  font-variant-numeric: tabular-nums;
-  color: var(--ok);
-  text-shadow: 0 0 28px color-mix(in srgb, var(--ok) 45%, transparent);
-}
-.status.idle .code, .status.off .code { color: var(--faint); letter-spacing: 0.04em; text-shadow: none; }
-.status.warn .code { color: var(--warn); text-shadow: 0 0 28px color-mix(in srgb, var(--warn) 45%, transparent); }
-.status.bad .code { color: var(--bad); text-shadow: 0 0 28px color-mix(in srgb, var(--bad) 45%, transparent); }
-
-.timing { display: grid; gap: 8px; flex: none; }
-.bar {
-  display: flex;
-  width: 160px;
-  height: 7px;
-  border-radius: var(--r-full);
-  background: var(--well);
-  box-shadow: inset 0 0 0 1px var(--line);
-  overflow: hidden;
-}
-.wait { background: repeating-linear-gradient(90deg, var(--silk) 0 1.5px, transparent 1.5px 4px); }
-.transfer { flex: 1; background: var(--accent); box-shadow: 0 0 12px -2px var(--accent); }
-
-.idle-note { display: flex; align-items: center; gap: var(--s-2); color: var(--silk); font-size: var(--t-small); }
-
-.scan {
-  width: 160px;
-  height: 7px;
-  border-radius: var(--r-full);
-  background: var(--well);
-  box-shadow: inset 0 0 0 1px var(--line);
+.idle-hint { display: flex; align-items: center; gap: 6px; margin-left: var(--s-2); color: var(--faint); font-size: var(--t-small); }
+.progress {
   position: relative;
+  width: 120px;
+  height: 3px;
+  margin-left: var(--s-2);
+  border-radius: 2px;
+  background: var(--line);
   overflow: hidden;
 }
-.scan::after {
-  content: "";
+.progress i {
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, transparent 0 35%, var(--accent) 45% 55%, transparent 65%);
-  background-size: 260% 100%;
-  animation: scan 1.1s var(--ease) infinite alternate;
+  width: 40%;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: sweep 1s var(--ease) infinite alternate;
 }
-@keyframes scan { from { background-position: 100% 0; } to { background-position: 0 0; } }
-
-.ui-tabs :deep(.icon-btn.on) { background: var(--accent-tint); color: var(--accent-text); border-color: var(--accent-line); }
+@keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
 
 .redirect {
   display: flex;
@@ -527,15 +487,11 @@ async function copyBody() {
 .nothing { display: grid; gap: var(--s-3); justify-items: center; text-align: center; }
 /* A quiet mark rather than an empty rectangle: the body goes here. */
 .glyph {
-  font-family: var(--font-mono);
-  font-size: 40px;
-  font-weight: 600;
-  letter-spacing: -0.06em;
+  font-size: 32px;
+  font-weight: 500;
+  letter-spacing: -0.04em;
   line-height: 1;
-  color: transparent;
-  background: linear-gradient(180deg, var(--line-strong), transparent);
-  -webkit-background-clip: text;
-  background-clip: text;
+  color: var(--line-strong);
 }
 .blank p { margin: 0; }
 .blank b { color: var(--ink-2); font-weight: 600; }
@@ -560,12 +516,13 @@ async function copyBody() {
  * base rules below it.
  */
 @container (max-width: 760px) {
-  .readout { gap: var(--s-6); }
-  .timing, .scan { display: none; }
+  .measure { display: none; }
+  .response :deep(.ui-tabs) { gap: var(--s-3); }
+  .response :deep(.ui-tab .meta) { display: none; }
 }
-@container (max-width: 560px) {
-  .readout { gap: var(--s-4); }
-  .code { font-size: 24px; }
+@container (max-width: 680px) {
+  .status .text { display: none; }
+  .response :deep(.ui-seg) { display: none; }
 }
 
 .find {
@@ -612,7 +569,6 @@ async function copyBody() {
 .compare p { margin: 0; display: flex; align-items: center; gap: var(--s-2); font-size: var(--t-small); }
 .compare code { font-size: var(--t-meta); color: var(--ink); }
 .compare .hint { color: var(--silk); }
-.icon-btn.on { color: var(--accent-text); background: var(--accent-tint); border-color: var(--accent-line); }
 .blank-note { margin: 0; color: var(--silk); font-size: var(--t-small); max-width: 60ch; }
 
 .shown { display: grid; gap: var(--s-2); min-height: 0; }

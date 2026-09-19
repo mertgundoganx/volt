@@ -6,16 +6,19 @@ export default defineNuxtConfig({
   devtools: { enabled: false },
   modules: ['@pinia/nuxt'],
   // Fonts are bundled, not fetched: the app runs offline and its CSP only
-  // allows same-origin resources.
+  // allows same-origin resources. Plex Sans carries its weight axis; Plex Mono
+  // ships as static cuts, and three are all the UI uses.
   css: [
-    '@fontsource-variable/archivo/wdth.css',
-    '@fontsource-variable/jetbrains-mono/wght.css',
+    '@fontsource-variable/ibm-plex-sans/wght.css',
+    '@fontsource/ibm-plex-mono/400.css',
+    '@fontsource/ibm-plex-mono/500.css',
+    '@fontsource/ibm-plex-mono/600.css',
     '~/assets/tokens.css',
     '~/assets/base.css',
   ],
   app: {
     head: {
-      title: 'Volt',
+      title: 'volt',
       meta: [{ name: 'viewport', content: 'width=device-width, initial-scale=1' }],
     },
   },

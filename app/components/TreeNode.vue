@@ -49,8 +49,8 @@ function requestCount(node: Node) {
 </script>
 
 <template>
-  <!-- The guide lines up with the parent's chevron: row margin 8 + indent + half the icon. -->
-  <ul class="tree" :class="{ nested: depth > 0 }" :style="{ '--guide': `${8 + 12 + (depth - 1) * 16 + 4}px` }">
+  <!-- The guide lines up with the parent's chevron: row margin + indent + half the icon. -->
+  <ul class="tree" :class="{ nested: depth > 0 }" :style="{ '--guide': `${6 + 12 + (depth - 1) * 16 + 6}px` }">
     <li v-for="node in nodes" :key="node.id">
       <template v-if="node.kind === 'folder'">
         <div
@@ -66,7 +66,8 @@ function requestCount(node: Node) {
           @dragover="over($event, node.id, true)"
           @drop.prevent="onDrop(node.id)"
         >
-          <UiIcon :name="collapsed.has(node.id) ? 'chevron-right' : 'chevron-down'" :size="13" class="chev" />
+          <UiIcon :name="collapsed.has(node.id) ? 'chevron-right' : 'chevron-down'" :size="12" class="chev" />
+          <UiIcon :name="collapsed.has(node.id) ? 'folder' : 'folder-open'" :size="14" class="folder-glyph" />
 
           <input
             v-if="renamingId === node.id"
@@ -81,7 +82,7 @@ function requestCount(node: Node) {
           >
           <span v-else class="label" @dblclick.stop="startRenaming(node.id)">{{ node.name }}</span>
 
-          <span class="count mono">{{ requestCount(node) }}</span>
+          <span class="count mono num">{{ requestCount(node) }}</span>
           <span class="tools">
             <button type="button" class="icon-btn quiet sm" aria-label="New request here" title="New request here" @click.stop="store.createRequest(node.id)">
               <UiIcon name="plus" :size="14" />
@@ -127,7 +128,6 @@ function requestCount(node: Node) {
         >
         <span v-else class="label" @dblclick.stop="startRenaming(node.id)">{{ node.name }}</span>
 
-        <span class="probe" aria-hidden="true" />
         <span class="tools">
           <button type="button" class="icon-btn quiet sm" :aria-label="`More for ${node.name}`" title="More" @click.stop="openBelow($event.currentTarget as HTMLElement, node)">
             <UiIcon name="more" :size="14" />
@@ -147,7 +147,7 @@ function requestCount(node: Node) {
   position: absolute;
   left: var(--guide);
   top: 0;
-  bottom: 6px;
+  bottom: 4px;
   border-left: 1px solid var(--line);
   pointer-events: none;
 }
@@ -156,10 +156,10 @@ function requestCount(node: Node) {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   height: var(--h-row);
-  margin: 1px var(--s-2);
-  padding-right: 6px;
+  margin: 0 6px;
+  padding-right: 4px;
   border-radius: var(--r-sm);
   color: var(--ink-2);
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
@@ -167,86 +167,55 @@ function requestCount(node: Node) {
 .row:hover { background: var(--hover); color: var(--ink); }
 
 .folder { color: var(--ink); }
-.folder .label { font-weight: 650; letter-spacing: -0.005em; }
-.chev { color: var(--silk); margin-left: -2px; }
+.folder .label { font-weight: 500; }
+.chev { color: var(--faint); margin-right: -2px; }
+.folder-glyph { color: var(--silk); }
 
-.request .method { width: 34px; flex: none; }
+.request .method { width: 38px; flex: none; text-align: left; margin-left: 20px; }
 
-/* The request the instrument is attached to: the current runs through it. */
-.request.active {
-  background: var(--accent-tint);
-  color: var(--ink);
-  box-shadow: inset 0 0 0 1px var(--accent-line);
-}
-.request.active .label { font-weight: 650; }
-.request.active::before {
-  content: "";
-  position: absolute;
-  left: -3px;
-  top: 6px;
-  bottom: 6px;
-  width: 3px;
-  border-radius: var(--r-full);
-  background: var(--accent);
-  box-shadow: 0 0 10px 0 var(--accent);
-}
+/* The request that is open. */
+.request.active { background: var(--accent-tint); color: var(--ink); }
+.request.active .label { font-weight: 500; color: var(--accent-text); }
 
-.label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-small); }
 
-.count { color: var(--faint); font-size: 10.5px; }
+.count { color: var(--faint); font-size: var(--t-micro); padding-right: 4px; }
 
-/* The lamp on the request the instrument is attached to. */
-.probe {
-  display: none;
-  width: 6px;
-  height: 6px;
-  margin-right: 3px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 9px 0 var(--accent);
-}
-.request.active .probe { display: block; }
-
-.tools { display: none; gap: 1px; margin-right: -2px; }
+.tools { display: none; gap: 1px; }
 .row:hover .tools, .row:focus-within .tools { display: flex; }
-.row:hover .count, .row:focus-within .count, .row:hover .probe { display: none; }
+.row:hover .count, .row:focus-within .count { display: none; }
 /* While renaming, the field gets the whole row. */
 .row:has(.rename) .tools { display: none; }
 
-.rename { flex: 1; min-width: 0; height: 24px; padding: 0 6px; font-weight: 500; }
+.rename { flex: 1; min-width: 0; height: 22px; padding: 0 6px; font-size: var(--t-small); }
 
-/* Drag and drop: a line where the row will land, an outline to go inside. */
+/* Drag and drop: a line where the row will land, a fill to go inside. */
 .row.dragging { opacity: 0.4; }
 .row.drop-before::after,
 .row.drop-after::after {
   content: "";
   position: absolute;
-  left: calc(var(--s-2) + 2px);
+  left: 4px;
   right: 4px;
   height: 2px;
-  border-radius: var(--r-full);
   background: var(--accent);
-  box-shadow: 0 0 10px -1px var(--accent);
   pointer-events: none;
 }
 .row.drop-before::before,
 .row.drop-after::before {
   content: "";
   position: absolute;
-  left: var(--s-1);
-  width: 7px;
-  height: 7px;
+  left: 0;
+  width: 6px;
+  height: 6px;
   border: 2px solid var(--accent);
   border-radius: 50%;
   background: var(--bg-0);
   pointer-events: none;
 }
 .row.drop-before::after { top: -1px; }
-.row.drop-before::before { top: -4px; }
+.row.drop-before::before { top: -3px; }
 .row.drop-after::after { bottom: -1px; }
-.row.drop-after::before { bottom: -4px; }
-.row.drop-inside {
-  background: var(--accent-tint);
-  box-shadow: inset 0 0 0 1.5px var(--accent);
-}
+.row.drop-after::before { bottom: -3px; }
+.row.drop-inside { background: var(--accent-tint); box-shadow: inset 0 0 0 1.5px var(--accent); }
 </style>

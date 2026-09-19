@@ -62,7 +62,7 @@ watch(
       <span v-if="store.myStream" class="url mono">{{ store.myStream.url }}</span>
       <span class="spacer" />
       <span class="silk num">{{ events.length }} events</span>
-      <button v-if="store.myStream" type="button" class="btn btn-quiet btn-sm" @click="store.closeStream()">Disconnect</button>
+      <button v-if="store.myStream" type="button" class="btn btn-quiet btn-sm" @click="store.attempt(() => store.closeStream())">Disconnect</button>
     </div>
 
     <div ref="list" class="events">

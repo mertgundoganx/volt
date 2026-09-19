@@ -23,7 +23,7 @@ function openStep(id: string) {
       <UiIcon name="info" :size="14" />
       <span>
         Every request in order, carrying captured values forward — a login's token
-        reaches the request after it. Checks decide whether a step passed. The same
+        reaches the request after it. Tests decide whether a step passed. The same
         run happens from a terminal with <code>volt-run</code>, so CI sees what you see.
       </span>
     </p>

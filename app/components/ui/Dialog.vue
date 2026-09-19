@@ -104,7 +104,7 @@ function onKey(event: KeyboardEvent) {
   place-items: center;
   padding: var(--s-6);
   background: var(--backdrop);
-  animation: fade 140ms var(--ease);
+  animation: fade 120ms var(--ease);
 }
 
 .ui-dialog {
@@ -115,8 +115,8 @@ function onKey(event: KeyboardEvent) {
   background: var(--bg-3);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  box-shadow: var(--rim), var(--shadow-pop);
-  animation: rise 180ms var(--ease);
+  box-shadow: var(--shadow-pop);
+  animation: rise 160ms var(--ease);
 }
 
 header {
@@ -125,14 +125,13 @@ header {
   gap: var(--s-3);
   padding: var(--s-4) var(--s-4) var(--s-3) var(--s-5);
 }
-.heading { flex: 1; display: grid; gap: 7px; min-width: 0; padding-top: 4px; }
+.heading { flex: 1; display: grid; gap: 4px; min-width: 0; padding-top: 2px; }
 h2 {
   margin: 0;
-  font-stretch: 100%;
-  font-weight: 750;
-  font-size: 17px;
-  line-height: 1.2;
-  letter-spacing: -0.02em;
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
 }
 
 .body { flex: 1; overflow: auto; padding: 0 var(--s-5) var(--s-5); min-height: 0; }
@@ -146,5 +145,5 @@ footer {
 }
 
 @keyframes fade { from { opacity: 0; } }
-@keyframes rise { from { opacity: 0; transform: translateY(10px) scale(0.985); } }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } }
 </style>

@@ -198,8 +198,10 @@ Tauri's WebView2 cannot be scripted, but the frontend is a plain SPA: run
 `window.__TAURI_INTERNALS__.invoke` — via `addInitScript`. Everything above
 that line is the real store and the real components. Two things to know if you
 write such a script: `plugin:store|get` returns a `[value, exists]` tuple,
-`plugin:store|load` returns a resource id, and `restore()` opens nothing unless
-`recentCollections` is seeded. Playwright's
+`plugin:store|load` returns a resource id, and with no `recentCollections`
+seeded `restore()` asks `default_collection` and opens whatever
+`open_collection` answers — seed `failing: ['default_collection']` to reach the
+no-collection state. Playwright's
 mouse API does not raise HTML5 drag events, so dispatch `dragstart`/`dragover`/
 `drop` yourself with a shared `DataTransfer`, and wait a tick before reading
 classes back — Vue flushes the DOM asynchronously. Read the port off the dev
@@ -220,9 +222,8 @@ More stub rules learned the hard way:
   Anything the script overrode before the reload is silently gone and the stub's
   defaults answer instead — seed the scenario through `launch()` rather than
   reloading.
-- `.silk` uppercases its text in CSS, and `innerText` returns what is rendered.
-  An assertion against a label has to be case-insensitive, or it fails on text
-  that is perfectly correct on screen.
+- Match a label case-insensitively anyway. `.silk` no longer uppercases, but
+  a test that survives a change of case is a test that survives a redesign.
 - Playwright's `keyboard.press('Shift+/')` arrives as `key: '/'`, not `'?'`.
   Press the character itself (`press('?')`) to test a punctuation shortcut, and
   blur first: a binding without `mod` is ignored while a field has focus.

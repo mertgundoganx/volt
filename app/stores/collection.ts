@@ -63,7 +63,8 @@ const WORKSPACE_KEY = 'workspace'
 const MONITORS_KEY = 'monitors'
 const AUTO_UPDATE_KEY = 'checkUpdates'
 
-export type ThemePreference = 'system' | 'light' | 'dark'
+export type ThemePreference = 'system' | 'light' | 'dark' | 'linen' | 'mist'
+export const THEMES: ThemePreference[] = ['system', 'light', 'dark', 'linen', 'mist']
 
 /** What a pasted curl command became, shown under the request until it changes. */
 export interface CurlNotice {
@@ -259,6 +260,8 @@ export const useCollectionStore = defineStore('collection', {
     checkResults: [] as CheckOutcome[],
     /** Whatever the last Postman export could not take with it. */
     exportNotes: [] as string[],
+    /** The folder volt made for itself on first launch, once it has asked. */
+    defaultRoot: null as string | null,
     /** Named sets of collections, kept in this app's settings. */
     workspaces: [] as Workspace[],
     workspace: null as string | null,
@@ -389,7 +392,7 @@ export const useCollectionStore = defineStore('collection', {
         this.workspace = (await store.get<string | null>(WORKSPACE_KEY)) ?? null
         this.monitors = (await store.get<Monitor[]>(MONITORS_KEY)) ?? []
         const theme = await store.get<ThemePreference>(THEME_KEY)
-        this.theme = theme === 'light' || theme === 'dark' ? theme : 'system'
+        this.theme = theme && THEMES.includes(theme) ? theme : 'system'
         applyTheme(this.theme)
 
         this.autoCheckUpdates = (await store.get<boolean>(AUTO_UPDATE_KEY)) ?? true
@@ -399,15 +402,21 @@ export const useCollectionStore = defineStore('collection', {
         if (this.autoCheckUpdates) void this.checkForUpdate()
 
         const last = this.recent[0]
-        if (!last) return
-
-        try {
-          await this.load(last)
-        } catch {
-          // A remembered path can be moved or deleted; forget it quietly.
-          this.recent = this.recent.slice(1)
-          await store.set(RECENT_KEY, this.recent)
+        if (last) {
+          try {
+            await this.load(last)
+            return
+          } catch {
+            // A remembered path can be moved or deleted; forget it quietly.
+            this.recent = this.recent.slice(1)
+            await store.set(RECENT_KEY, this.recent)
+          }
         }
+
+        // Nothing to open, so open the folder volt keeps for itself. A first
+        // launch lands on a working collection rather than on a file dialog.
+        this.defaultRoot = await invoke<string>('default_collection')
+        await this.load(this.defaultRoot)
       })
     },
 
@@ -600,7 +609,7 @@ export const useCollectionStore = defineStore('collection', {
       // tab closes it. Otherwise it keeps running with nothing on screen and
       // no way to reach the Disconnect button.
       if (this.stream && this.streamOwner !== null && this.streamOwner === going.id) {
-        void this.closeStream()
+        void this.attempt(() => this.closeStream())
       }
       this.tabs.splice(index, 1)
 
@@ -777,6 +786,22 @@ export const useCollectionStore = defineStore('collection', {
         await invoke('save_request', { root, id, request: emptyRequest() })
         await this.reload()
         await this.select(id)
+      })
+    },
+
+    /**
+     * A copy of a request beside the original, named after it. Postman's
+     * Ctrl+D: the usual way to start a request that is nearly another one.
+     */
+    async duplicate(id: string) {
+      await this.attempt(async () => {
+        const root = this.requireRoot()
+        const source = await invoke<ApiRequest>('get_request', { root, id })
+        const copy: ApiRequest = { ...source, name: `${source.name} copy` }
+        const newId = this.freeId(parentOf(id), fileBase(copy.name))
+        await invoke('save_request', { root, id: newId, request: copy })
+        await this.reload()
+        await this.select(newId)
       })
     },
 
@@ -1642,10 +1667,10 @@ export const useCollectionStore = defineStore('collection', {
       if (streaming) {
         // Only this tab's own connection is ended by this tab's key. Pressing
         // Connect on a second socket used to disconnect the first one.
-        if (this.myStream) return this.closeStream()
+        // Through `attempt`, like every other action: a bare throw here is an
+        // unhandled rejection, which reaches the strip only by accident.
+        if (this.myStream) return this.attempt(() => this.closeStream())
         if (this.stream) {
-          // Through `attempt`, like every other action: a bare throw here is an
-          // unhandled rejection, which reaches the strip only by accident.
           return this.attempt(async () => {
             throw new Error('Another request is connected. Disconnect it first.')
           })

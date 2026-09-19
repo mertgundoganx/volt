@@ -319,14 +319,13 @@ async function save() {
   border: 1px solid transparent;
   border-radius: var(--r-sm);
   background: transparent;
-  font-stretch: 104%;
   font-weight: 700;
   font-size: 18px;
   letter-spacing: -0.012em;
 }
 .env-name:hover { background: var(--hover); }
 .env-name:focus { background: var(--well); border-color: var(--accent); }
-.env-title { margin: 0; font-stretch: 104%; font-weight: 700; font-size: 18px; }
+.env-title { margin: 0; font-weight: 700; font-size: 18px; }
 
 .layout { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: var(--s-5); align-items: start; }
 .rail {

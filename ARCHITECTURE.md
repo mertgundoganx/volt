@@ -55,7 +55,7 @@ This file is the "why" behind the code. For how to build and test it, see
 | `app/utils/icons.ts` | The hand-drawn icon set |
 | `app/utils/syntax.ts` | JSON pretty-printing and highlighting (tokens, never HTML) |
 | `app/components/ui/` | Primitives: Icon, Tabs, Segmented, Dialog, MenuButton, Splitter, VarInput, CodeView, CodeEditor, Select, Measure |
-| `app/components/` | Screens: AppBar, Sidebar, TreeNode, TreeMenu, NewFolderInput, HistoryList, Welcome, RequestTabs, RequestPane, KeyValueEditor, ResponsePane, EnvironmentEditor, ScopeEditor, SettingsDialog, CookiesDialog, CodeDialog, ImportReport, CurlDialog, CommandPalette, ShortcutsSheet, MockDialog, SyncDialog, WorkspacesDialog, MonitorsDialog, RunnerDialog, OAuthDialog, StreamPane, GrpcEditor, GrpcReplyPane, GraphQlEditor, TrashDialog, Toast |
+| `app/components/` | Screens: Rail, AppBar, Sidebar, TreeNode, TreeMenu, NewFolderInput, HistoryList, Welcome, RequestTabs, RequestPane, KeyValueEditor, ResponsePane, EnvironmentEditor, ScopeEditor, SettingsDialog, CookiesDialog, CodeDialog, ImportReport, CurlDialog, CommandPalette, ShortcutsSheet, MockDialog, SyncDialog, WorkspacesDialog, MonitorsDialog, RunnerDialog, OAuthDialog, StreamPane, GrpcEditor, GrpcReplyPane, GraphQlEditor, TrashDialog, Toast |
 | `examples/sample-collection/` | Fixture the Rust tests load — changing it breaks tests |
 
 ## Conventions that matter
@@ -397,6 +397,16 @@ editor; and a commit is refused while `.gitignore` does not cover the `.env`
 files. Missing git, or a folder that is not a repository, is not an error —
 `status` says so and the rest of the app carries on.
 
+**A first launch opens a collection, not a dialog.** With nothing remembered,
+`restore` asks `default_collection` for volt's own folder —
+`<documents>/volt/personal`, made by `collection::ensure_default` the first
+time and never reinitialised after — and opens it. Before this, the first
+screen was a file picker and "New request" was disabled until a folder had
+been chosen, which is a question nobody can answer before they have made a
+request. The store keeps the path as `defaultRoot` so the start page can say
+what the folder is; a collection inside a repository is opened over it like
+any other, and the personal one stays where it is.
+
 **Workspaces and monitors are settings, not collection data.** Both live in
 the app's own store: a workspace is a list of paths on this machine, and a
 monitor only runs while volt is open. Monitor timers are kept in a module-level
@@ -408,7 +418,9 @@ recorded in History like any other send, so there is no second log to go stale.
 and `from` is the same vocabulary a capture reads — `status`, `time`,
 `header:Name`, `body`, `$.data.id`. Both go through `capture::read`, so an
 assertion and a capture can never disagree about where a value comes from. `op`
-defaults to `is`, because that is what most checks are.
+defaults to `is`, because that is what most checks are. On screen they are
+called **Tests** — the word people arrive with from every other client — and
+only the file format and the code say `checks`.
 
 **A run carries its variables forward.** `runner.rs` walks the tree in order,
 and a step's captures feed the next step's context. They stay in memory for the
@@ -534,150 +546,173 @@ published by hand.
 `app.vue`. An `invoke` outside `attempt()` becomes an unhandled rejection and the
 UI just sits there.
 
-## Design system — "Voltage"
+## Design system — "Paper"
 
-Dark first. volt is a dark instrument panel with one live current running
-through it. Follow this for every new screen: it is what keeps the app from
-looking like every other tool, and it is deliberate in every part.
+Light first. volt is a sheet of warm paper with ink on it, and one colour —
+ultramarine — kept for the things that act. Follow this for every new screen:
+it is what keeps the app from looking like every other client, and each part
+of it is deliberate.
 
-**The idea.** Everything that *does* something wears the current — electric
-violet. Everything else is a cool near-black neutral, so the current has
-somewhere to glow. Depth comes from layering and light rather than from boxes:
-surfaces step upward, hairlines are barely there, and anything that floats
-carries a rim of light along its top edge. The response is still a *reading*:
-status code, time, first byte, size, and a wait/transfer bar from real timing
-data. The collection is still visibly files: request ids such as
-`users/list-users.yaml` are shown, not hidden.
+**The idea.** A request is a file, and the screen should feel like a well-set
+page rather than a cockpit. Warm off-white surfaces, near-black ink, hairline
+rules, and nothing that glows. The collection is visibly files: request ids
+such as `users/list-users.yaml` are printed next to the name, not hidden. Two
+things are *stamped* — the method on the request bar and the status on the
+response — a solid block of colour with the text cut out of it, which is the
+one motif the app owns.
 
-**The accent rule.** Violet means **live**, and that is the only thing it
-means. It marks the Send key, the request the instrument is attached to, a
-`{{variable}}`, the focus ring, the selected segment, the tab you are on, a
-search hit. It is never decoration, and it is never a status: a warning is
-amber (`--warn`), a failure is red (`--bad`), a success is green (`--ok`).
-There is exactly one filled accent button on a screen — the one that does the
-thing. `.btn-primary` is that button.
+**The one colour.** Ultramarine means **acts**, and that is the only thing it
+means. It marks the Send key, the request you are on, a `{{variable}}`, the
+focus ring, the underline of the open tab, the rail key that is on. It is never
+decoration, and it is never a status: a warning is amber (`--warn`), a failure
+is red (`--bad`), a success is green (`--ok`). There is one filled accent
+button on a screen — the one that does the thing. `.btn-primary` is that button
+and the Send key is its own case of it.
 
 **Two tones of accent, and they are not interchangeable.** `--accent` is a
-*fill*: white text reads on it (measured at 5.3:1 dark, 5.5:1 light). It is
-darker than it looks like it should be, and a gradient with a lighter top would
-break that, which is why filled controls are a flat `--accent` with an inset
-highlight line instead. `--accent-text` is the accent as *text* on a surface —
-lighter in dark, darker in light. Using the wrong one is how the label on the
-Send key becomes unreadable.
+fill: white reads on it at 7:1. `--accent-text` is the same colour as text on
+paper, darkened on light and lifted on dark so it clears 4.5:1 on the surface.
+A component that writes accent-coloured *text* uses `--accent-text`; a
+component that *fills* uses `--accent`. Getting them the wrong way round is
+the difference between a control and a smudge.
 
-**Colour.** Take every colour from `tokens.css`; never write a hex in a
-component. Surfaces are a ladder: `--bg-0` the frame (title bar, sidebar),
-`--bg-1` the working surface, `--bg-2` raised (cards, the readout, buttons),
-`--bg-3` floating (menus, dialogs), and `--well` recessed (inputs, code, the
-response body). Meaning (`--ok/--warn/--bad/--info`) is separate from methods
-(`--m-*`) and from the accent. Methods are vivid and never violet, because
-violet is spoken for: GET emerald, POST amber, PUT blue, PATCH cyan, DELETE
-rose. Themes: the full **dark** palette is on bare `:root`; light redefines
-tokens only, for the OS setting and for an explicit `data-theme="light"`. The
-user's choice (System/Light/Dark) lives in Settings and is applied by
-`applyTheme`. If you add a token, add it to all three blocks and check
-contrast: text >= 4.5:1 on every surface it can sit on, `--faint`/`--punc`
->= 3:1. The measurements are real — run them before and after.
+**Surfaces**, from the frame inward: `--bg-0` (the rail, the sidebar, the tab
+strip), `--bg-1` (the working surface), `--bg-2` (buttons, cards), `--bg-3`
+(menus and dialogs, the only things that float), `--well` (inputs, code, the
+response body). Light is on bare `:root`; dark is the same paper at night —
+warm graphite, not blue-black — and redefines tokens only, under
+`prefers-color-scheme: dark` while no theme is chosen and under an explicit
+`data-theme="dark"`. Two more sheets of paper, Linen (cream, brick) and Mist
+(cool grey, teal), are named themes as well. Every named theme is selected by
+`[data-theme=…]` on *any* element, not only `:root`: that is how the cards in
+Settings show each theme's real colours — a swatch wears the attribute and
+draws `var(--bg-0)`, `var(--accent)`, `var(--ink)` — without a second copy of
+the palette in a component. The user's choice (System, Paper, Graphite, Linen,
+Mist) lives in Settings and is applied by `applyTheme`. If you add a token,
+add it to all five blocks and check contrast: text >= 4.5:1 on every surface,
+`--faint` and `--punc` >= 3:1. Every hex in `tokens.css` was measured, not
+eyeballed.
 
-**Type.** Archivo Variable for UI (use its width axis: `font-stretch: 78%` for
-small caps labels, `125%` for the wordmark) and JetBrains Mono Variable for
-anything a machine reads: URLs, keys, values, bodies, paths, numbers. Both are
-bundled through `@fontsource-variable`; the app is offline and its CSP only
-allows same-origin, so never link a font CDN. Sizes come from `--t-*`. Headings
-are tight (`letter-spacing: -0.02em` and below); section and field labels are
-`.silk`: condensed, uppercase, tracked. `.silk` is for a *label*, never a
-value — it uppercases in CSS, so a name or a type signature put in one comes
-out shouting.
+**Type.** IBM Plex Sans for the interface and IBM Plex Mono for anything a
+machine reads: URLs, keys, values, bodies, paths, numbers. They are one family,
+which is most of why the screen reads as designed rather than assembled. Both
+are bundled through `@fontsource`; the app is offline and its CSP only allows
+same-origin, so never link a font CDN. Sizes come from `--t-*`. A label is
+`.silk`: 11.5px, medium weight, sentence case, in the label colour. It does
+not uppercase and it does not track — the label should be quieter than the
+value, not louder.
 
-**Shape.** Radius follows role, not habit: `--r-xs` 5 (checkbox, kbd, variable
-marks), `--r-sm` 8 (buttons, inputs, rows), `--r-md` 11 (the probe, menus,
-cards), `--r-lg` 16 (dialogs), `--r-full` (pills, segments, chips). Structure
-is drawn with hairline rules, not boxes: panes, tables and sections are
-separated by `--line`. Only floating things get `--shadow-pop`, and they get
-`--rim` with it. Do not wrap content in cards.
+**Shape.** Radius follows role: `--r-xs` 4 (checkbox, kbd, stamps, variable
+marks), `--r-sm` 6 (buttons, inputs, rows), `--r-md` 8 (menus, the URL bar),
+`--r-lg` 10 (dialogs). Structure is drawn with hairline rules, not boxes:
+panes, tables and sections are separated by `--line`, and only the things
+that float get `--shadow-pop`. No other shadow exists. No gradient exists. Do
+not wrap content in cards.
 
-**Elevation and light.** A control is a surface lifted off the panel: `--bg-2`,
-a hairline, `var(--rim)` along the top edge, `--shadow-1` beneath. It brightens
-under the pointer and sinks on press (`translateY(1px)`, shadow off). Anything
-lit — a status lamp, a live tab underline, the Send key, a drop line — carries a
-soft coloured glow of its own colour. Glows are small and specific; a page-wide
-haze is not the language.
+**Materials.** A control is a rectangle with a hairline and a fill. Under the
+pointer it darkens one step (`--hover`), pressed another (`--press`). Nothing
+moves on press and nothing lights up. `UiSegmented` is a strip of choices with
+the chosen one lifted to the surface; the chosen one is not filled with the
+accent, because a choice is not an action.
 
-**Shared vocabulary** (`base.css`): `.btn` (a lifted key), `.btn-primary` (the
-accent one), `.btn-quiet`, `.btn-danger`, `.btn-sm`, `.icon-btn` (+ `.quiet`,
-`.sm`), `.field` (+ `.mono`, `.inline`, `.invalid`), native checkboxes and
-`.switch` are styled globally and go accent when checked, `.led` (+
-`ok/warn/bad/live/off`, each with its halo), `.method[data-method]` (+ `.tag`
-for a filled one), `.var` (+ `.missing`), `.kbd`, `.chip` (+ `.accent/.ok/
-.warn/.bad`), `.silk`, `.mono`, `.num` (tabular figures).
+**The layout.** A rail on the left edge — the mark, then one key per section
+(Collection, History, Env, Settings) with its name under it, because an icon
+that needs a tooltip is a puzzle and a rail with names is the thing people
+already know from every other tool. Beside it the sidebar for the section that
+is on: search and New on top, then the collection itself as the root row with
+its menu, then the tree — the shape someone arriving from Postman expects, so
+nothing has to be explained. Above both a slim bar holding the collection
+switcher and the environment. The request is one bar: the method stamp, the address, and Send
+welded to its right end, because to the person typing it is one thing — where,
+and go. The response puts its reading in the tab row — the status stamp, the
+time, the size — rather than in a readout of its own.
+
+**Shared vocabulary** (`base.css`): `.btn` (+ `.btn-primary`, `.btn-quiet`,
+`.btn-danger`, `.btn-sm`), `.icon-btn` (+ `.quiet`, `.sm`, `.on`), `.field`
+(+ `.mono`, `.inline`, `.invalid`), native checkboxes and `.switch` are styled
+globally and go accent when checked, `.led` (+ `ok/warn/bad/live/off`, a plain
+dot), `.method[data-method]` (coloured text; + `.tag` for the stamp, whose
+text is `--on-method`), `.var` (+ `.missing`), `.kbd`, `.chip` (+ `.accent/
+.ok/.warn/.bad`), `.silk`, `.mono`, `.num` (tabular figures).
 
 **Primitives** (`components/ui/`, used as `<UiX>`): reach for these before
 writing markup. `UiVarInput` for any single-line field that can hold
 `{{variables}}` (marks undefined ones in amber); `UiCodeView` for any body
 shown to the user; `UiDialog` for any modal (Esc, focus trap, return focus);
 `UiTabs`/`UiSegmented` for switching (arrow keys work); `UiMeasure` for a
-reading; `UiSplitter` for resizable panes; `UiMenuButton` for a button that
-opens a short menu (items with icon and hint, keyboard navigation). For a
-passing confirmation call `store.notify(text, detail?, tone)`, which the
-`Toast` shows; errors still go through `attempt()` and the error strip.
+labelled reading; `UiSplitter` for resizable panes; `UiMenuButton` for a
+button that opens a short menu (items with icon and hint, keyboard navigation;
+`variant` picks a quiet, solid or primary face). For a passing confirmation
+call `store.notify(text, detail?, tone)`, which the `Toast` shows; errors
+still go through `attempt()` and the error strip.
 
-**Icons.** Only from `utils/icons.ts`: drawn for this app on a 16px grid,
-1.5px stroke, round caps. No icon libraries (Lucide and friends are the most
-recognisable sign of a generated UI). Add new icons to the same grid, and
-prefer a word when an icon would need a tooltip to be understood.
+**Icons and the mark.** Only from `utils/icons.ts`: drawn for this app on a
+16px grid, 1.5px stroke, round caps. No icon libraries (Lucide and friends are
+the most recognisable sign of a generated UI). The mark is the bolt in that
+set, filled; the app icon is the same bolt, white on ultramarine, from
+`src-tauri/app-icon.svg` — regenerate every size with
+`pnpm tauri icon src-tauri/app-icon.svg -o src-tauri/icons` and delete the
+`android/` and `ios/` folders it also writes. Prefer a word when an icon would
+need a tooltip to be understood; the rail's keys carry their names.
 
-**Motion.** Short and functional only: 140ms colour transitions on
-`--ease` (an out-expo, so things arrive rather than drift), a 130–180ms
-rise-and-scale for dialogs and menus, current running through the Send key
-while sending, a scan bar while measuring. `prefers-reduced-motion` turns it
-all off (`base.css`).
+**Motion.** Short and functional only: 120ms colour transitions on `--ease`,
+a 120–160ms fade for dialogs and menus, stripes across the Send key while a
+request is in flight, a sweep on the response strip while waiting.
+`prefers-reduced-motion` turns it all off (`base.css`).
 
 **Copy.** Say what happens, from the user's side: "Save environment", "No
-reading yet. Send the request", "Undefined: orderId". Errors say what went
-wrong and what to do.
+response yet. Send the request", "Undefined: orderId". Errors say what went
+wrong and what to do. No eyebrow labels over headings, no taglines.
 
-**Avoid**, because they are what makes a UI read as generated: gradient
-*backgrounds* (a gradient on the one accent key is the whole budget), glass and
-backdrop blur, Inter, emoji as icons, a rounded card with a shadow around
-everything, centred landing-page layouts for tool screens, neon on every
-surface, decorative numbering. The accent is loud precisely because nothing
-else is.
+**Avoid**, because they are what makes a UI read as generated: a dark
+background with one neon accent, glow and halo effects, glass and blur,
+gradients, Inter, emoji as icons, a rounded card with a shadow around
+everything, centred landing-page layouts for tool screens, tracked uppercase
+labels on everything, decorative numbering.
 
 **Pitfalls already hit:**
 - A pane that stacks a header, an editor and a strip or two needs a
   `min-height` on itself and `overflow: auto` on its container. Without both,
   a short request pane does not scroll — it draws the children on top of each
   other, and the result reads as a rendering bug rather than a tight fit. The
-  GraphQL editor hit this at the 900×700 minimum. While you are there: put the
+  GraphQL editor hit this at the 900×600 minimum. While you are there: put the
   reading that matters in the header as well, because the bottom of a short
   pane is the part nobody sees.
-- `.silk` is for a *label*, never a value. It uppercases in CSS, so a name, a
-  type signature or a date put in one comes out shouting — and an assertion
-  against it fails on text that is perfectly correct on screen.
+- `.silk` is for a *label*, never a value. It is styled as the name of a
+  thing, quieter than the thing; a value in it looks like a caption for
+  nothing.
 - A component root class that matches a global class inherits its styles
   (`VarInput` with class `field` got a second border). Prefix variant classes
-  (`is-field`). The same trap bites test locators: `.meta` is a class the tab
-  strip uses, so a component's own `.meta` resolves to five elements. Name it
-  something the shared vocabulary does not.
+  (`is-field`).
+- A function ref (`:ref="el => el.focus()"`) runs while the element's subtree
+  is still being assembled, before it is in the document, and `focus()` on a
+  detached input does nothing. The new-folder field sat there with the caret
+  nowhere and everything typed went to the page. Focus in `onMounted`, from a
+  template ref. (A function ref works for the rename field only because that
+  input is patched into a row that is already on screen.)
+- A multi-root component (`UiMenuButton` is a button plus a menu) does not
+  pass `class` through. It sets `inheritAttrs: false` and binds `$attrs` to
+  the trigger; do the same in any primitive that renders more than one root.
 - `display: flex` with `gap` on a paragraph splits its text around inline
   `<code>` into separate flex items. Wrap the text in one `<span>`.
 - A `@container` block adds no specificity; put it after the base rules it
   overrides, or it silently loses.
 - Never centre an absolutely positioned `.btn`/`.icon-btn` with
-  `top: 50%; transform: translateY(-50%)`. `.icon-btn:active` sets its own
-  `transform`, so pressing the button drops it ~12px out from under the cursor
-  and the click never lands — mousedown hits the button, mouseup hits whatever
-  is behind it. Centre with `top: 0; bottom: 0; margin: auto 0` instead. (Hit
-  this on the reveal button in the environment editor; it looked fine and was
-  simply not clickable.)
+  `top: 50%; transform: translateY(-50%)` if the button has an `:active`
+  transform of its own — pressing it drops it out from under the cursor.
+  Centre with `top: 0; bottom: 0; margin: auto 0` instead.
+- The response tab row holds three things — tabs, the reading, the tools —
+  and at the 900px minimum with the sidebar open it is 588px wide. The
+  container queries at the end of `ResponsePane.vue` drop the measurements,
+  the tab counts, the status text and the Pretty/Raw switch in that order.
+  Add something to that row and check it at 900px, or the tools fall off the
+  right edge.
 - Tree rows also carry the class `request`; select the request pane as
   `section.request`.
 
-**Checking a UI change.** Look at it, in both themes, at the 900px minimum
-window width Tauri allows, including empty, loading, error and disabled
-states. Overflow checks miss squeezing; screenshots do not. Measure contrast
-rather than trusting the eye: a violet that looks right on a dark panel is
-often under 4.5:1 for the label sitting on it.
+**Checking a UI change.** Look at it, in both themes, at the 900×600 minimum
+window Tauri allows, including empty, loading, error and disabled states.
+Overflow checks miss squeezing; screenshots do not.
 
 ## Status
 

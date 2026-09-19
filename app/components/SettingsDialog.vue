@@ -2,7 +2,6 @@
 import { defaultExecOptions } from '~/types'
 import type { ThemePreference } from '~/stores/collection'
 import { applyTheme } from '~/stores/collection'
-import type { SegmentOption } from '~/utils/ui'
 
 const store = useCollectionStore()
 const emit = defineEmits<{ close: [] }>()
@@ -36,10 +35,17 @@ function cancel() {
   emit('close')
 }
 
-const themes: SegmentOption<ThemePreference>[] = [
-  { value: 'system', label: 'System', icon: 'monitor' },
-  { value: 'light', label: 'Light', icon: 'sun' },
-  { value: 'dark', label: 'Dark', icon: 'moon' },
+// Each card wears its theme through `data-theme`, so the swatch is drawn
+// from the real tokens rather than a second copy of the colours. System shows
+// whichever of the two the operating system would pick right now.
+const systemPick = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+const swatchTheme = (value: ThemePreference) => (value === 'system' ? systemPick : value)
+const themes: { value: ThemePreference; label: string; hint: string }[] = [
+  { value: 'system', label: 'System', hint: 'Follows the operating system' },
+  { value: 'light', label: 'Paper', hint: 'Warm white, ultramarine' },
+  { value: 'dark', label: 'Graphite', hint: 'Warm dark' },
+  { value: 'linen', label: 'Linen', hint: 'Cream, brick' },
+  { value: 'mist', label: 'Mist', hint: 'Cool grey, teal' },
 ]
 
 // Seconds read better than milliseconds, but Rust wants milliseconds.
@@ -80,12 +86,29 @@ async function save() {
 
     <section class="group" aria-labelledby="s-appearance">
       <h3 id="s-appearance" class="silk">Appearance</h3>
-      <div class="setting">
+      <div class="setting themes">
         <div class="text">
           <span class="name">Theme</span>
-          <span class="desc">System follows your operating system.</span>
+          <span class="desc">Applies as you pick; Cancel puts it back.</span>
         </div>
-        <UiSegmented v-model="theme" :options="themes" label="Theme" />
+        <div class="theme-grid" role="radiogroup" aria-label="Theme">
+          <button
+            v-for="one in themes"
+            :key="one.value"
+            type="button"
+            role="radio"
+            class="theme-card"
+            :class="{ on: theme === one.value }"
+            :aria-checked="theme === one.value"
+            @click="theme = one.value"
+          >
+            <span class="swatch" :data-theme="swatchTheme(one.value)" aria-hidden="true">
+              <i class="sw sw-chrome" /><i class="sw sw-paper" /><i class="sw sw-accent" /><i class="sw sw-ink" />
+            </span>
+            <span class="theme-name">{{ one.label }}</span>
+            <span class="theme-hint">{{ one.hint }}</span>
+          </button>
+        </div>
       </div>
     </section>
 
@@ -231,6 +254,37 @@ async function save() {
 .desc.bad { color: var(--bad); }
 .desc.warn { color: var(--warn); display: flex; gap: 6px; align-items: flex-start; }
 .desc.warn .ui-icon { margin-top: 2px; }
+
+.themes { flex-direction: column; align-items: stretch; gap: var(--s-3); }
+.theme-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--s-2); }
+.theme-card {
+  display: grid;
+  gap: 5px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+  text-align: left;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.theme-card:hover { border-color: var(--line-strong); }
+.theme-card.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-tint); }
+/* The swatch carries its own theme, so these tokens resolve to that theme's. */
+.swatch {
+  display: flex;
+  height: 34px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--bg-1);
+}
+.sw { flex: 1; }
+.sw-chrome { background: var(--bg-0); }
+.sw-paper { background: var(--bg-1); }
+.sw-accent { background: var(--accent); }
+.sw-ink { background: var(--ink); }
+.theme-name { font-weight: 600; font-size: var(--t-small); }
+.theme-hint { color: var(--silk); font-size: var(--t-label); line-height: 1.3; }
 
 .with-unit { display: flex; align-items: center; gap: var(--s-2); }
 .with-unit .field { width: 84px; text-align: right; }

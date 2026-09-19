@@ -1,6 +1,6 @@
 {
   "name": "volt",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "repository": "https://github.com/mertgundoganx/volt",
   "description": "Git-native, open source API client",
@@ -23,8 +23,8 @@
     "vue-tsc": "^3.3.11"
   },
   "dependencies": {
-    "@fontsource-variable/archivo": "^5.3.0",
-    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource-variable/ibm-plex-sans": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
     "@pinia/nuxt": "^1.0.2",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.3",

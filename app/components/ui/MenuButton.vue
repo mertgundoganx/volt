@@ -2,7 +2,11 @@
 import type { MenuItem } from '~/utils/ui'
 
 /** A button that opens a small menu below it. Keyboard: arrows, Home/End, Esc. */
-const props = defineProps<{ items: MenuItem[]; label: string; align?: 'start' | 'end' }>()
+defineOptions({ inheritAttrs: false })
+const props = withDefaults(
+  defineProps<{ items: MenuItem[]; label: string; align?: 'start' | 'end'; variant?: 'quiet' | 'solid' | 'primary' }>(),
+  { align: 'start', variant: 'quiet' },
+)
 const emit = defineEmits<{ select: [key: string] }>()
 
 const open = ref(false)
@@ -10,6 +14,12 @@ const trigger = ref<HTMLButtonElement>()
 const menu = ref<HTMLElement>()
 const position = ref({ top: 0, left: 0 })
 const WIDTH = 248
+
+const face = computed(() => ({
+  quiet: 'btn btn-quiet btn-sm',
+  solid: 'btn btn-sm',
+  primary: 'btn btn-primary btn-sm',
+})[props.variant])
 
 async function toggle() {
   if (open.value) return close()
@@ -58,7 +68,9 @@ function choose(item: MenuItem) {
   <button
     ref="trigger"
     type="button"
-    class="btn btn-quiet btn-sm ui-menu-trigger"
+    class="ui-menu-trigger"
+    :class="face"
+    v-bind="$attrs"
     :aria-label="label"
     aria-haspopup="menu"
     :aria-expanded="open"
@@ -92,7 +104,7 @@ function choose(item: MenuItem) {
 </template>
 
 <style scoped>
-.ui-menu-trigger .chev { color: var(--silk); margin-left: -2px; }
+.ui-menu-trigger .chev { color: var(--faint); margin-left: -2px; }
 
 .catcher { position: fixed; inset: 0; z-index: 60; }
 
@@ -100,12 +112,12 @@ function choose(item: MenuItem) {
   position: fixed;
   display: flex;
   flex-direction: column;
-  padding: 5px;
+  padding: 4px;
   background: var(--bg-3);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
-  box-shadow: var(--rim), var(--shadow-pop);
-  animation: pop 130ms var(--ease);
+  box-shadow: var(--shadow-pop);
+  animation: pop 120ms var(--ease);
 }
 
 .item {
@@ -113,20 +125,20 @@ function choose(item: MenuItem) {
   align-items: flex-start;
   gap: 9px;
   width: 100%;
-  padding: 7px 8px;
+  padding: 6px 8px;
   border-radius: var(--r-sm);
   text-align: left;
   color: var(--ink);
 }
-.item .ui-icon { color: var(--ink-2); margin-top: 1px; }
-.item:hover:not(:disabled), .item:focus-visible { background: var(--accent-tint); color: var(--ink); outline: none; }
-.item:hover:not(:disabled) .ui-icon, .item:focus-visible .ui-icon { color: var(--accent-text); }
+.item .ui-icon { color: var(--silk); margin-top: 1px; }
+.item:hover:not(:disabled), .item:focus-visible { background: var(--hover); outline: none; }
+.item:hover:not(:disabled) .ui-icon, .item:focus-visible .ui-icon { color: var(--ink); }
 .item:disabled { color: var(--faint); }
-.text { display: grid; gap: 2px; min-width: 0; }
-.name { font-weight: 550; }
-.hint { font-size: 11.5px; color: var(--silk); line-height: 1.35; }
+.text { display: grid; gap: 1px; min-width: 0; }
+.name { font-weight: 500; font-size: var(--t-small); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hint { font-size: var(--t-label); color: var(--silk); line-height: 1.35; }
 
-.sep { height: 1px; margin: 5px 4px; background: var(--line-soft); }
+.sep { height: 1px; margin: 4px 4px; background: var(--line-soft); }
 
-@keyframes pop { from { opacity: 0; transform: translateY(-6px) scale(0.97); } }
+@keyframes pop { from { opacity: 0; transform: translateY(-4px); } }
 </style>

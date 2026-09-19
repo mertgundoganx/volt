@@ -116,6 +116,23 @@ pub(crate) fn ensure_gitignore(root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The folder volt opens when it has nothing else to open. Made on first
+/// launch under the user's documents, so "New request" works before anyone
+/// has decided where their requests should live; a collection kept in a
+/// repository is opened over it the moment there is one.
+pub const DEFAULT_NAME: &str = "Personal";
+
+/// `<base>/volt/personal`, created as a collection if it is not one yet.
+/// Never touches one that already exists — the point is the files inside it.
+pub fn ensure_default(base: &Path) -> Result<PathBuf> {
+    let root = base.join("volt").join("personal");
+    if !root.join(COLLECTION_FILE).exists() {
+        fs::create_dir_all(&root).map_err(|e| Error::io(path_str(&root), e))?;
+        init(&root, DEFAULT_NAME)?;
+    }
+    Ok(root)
+}
+
 /// Parse arbitrary YAML (an import source, not the file format) into JSON
 /// values. Lives here so this file stays the only one naming the YAML crate.
 pub(crate) fn yaml_value(text: &str) -> std::result::Result<serde_json::Value, String> {
@@ -1924,5 +1941,26 @@ mod tests {
         assert!(read_request(&root, "users/list.yaml").is_ok());
 
         fs::remove_dir_all(&root).ok();
+    }
+    #[test]
+    fn the_default_collection_is_made_once_and_then_left_alone() {
+        let base = std::env::temp_dir().join(format!("volt-default-{}", std::process::id()));
+        fs::remove_dir_all(&base).ok();
+
+        let root = ensure_default(&base).unwrap();
+        assert_eq!(root, base.join("volt").join("personal"));
+        let loaded = load(&root).unwrap();
+        assert_eq!(loaded.meta.name, DEFAULT_NAME);
+        assert!(root.join(".gitignore").exists(), "secrets are ignored even here");
+
+        // Something the user made in the meantime.
+        let request = Request { name: "Kept".into(), ..Default::default() };
+        write_request(&root, "kept.yaml", &request).unwrap();
+
+        let again = ensure_default(&base).unwrap();
+        assert_eq!(again, root);
+        assert!(root.join("kept.yaml").exists(), "a second launch does not reinitialise it");
+
+        fs::remove_dir_all(&base).ok();
     }
 }
