@@ -779,19 +779,38 @@ fn describe(error: &reqwest::Error) -> String {
     if error.is_timeout() {
         return "timed out".to_string();
     }
+    // The reason is at the bottom of the chain — "connection refused (os
+    // error 10061)" under hyper's "client error (Connect)" under reqwest's
+    // "error sending request" — and without it the app cannot say what broke.
+    let mut causes = Vec::new();
+    let mut next = std::error::Error::source(error);
+    while let Some(cause) = next {
+        let text = cause.to_string();
+        if !causes.contains(&text) {
+            causes.push(text);
+        }
+        next = cause.source();
+    }
+    let root = causes.last().map(|cause| format!(": {cause}")).unwrap_or_default();
     if error.is_connect() {
-        return format!("could not connect: {error}");
+        return format!("could not connect: {error}{root}");
     }
-    match std::error::Error::source(error) {
-        Some(source) => format!("{error}: {source}"),
-        None => error.to_string(),
-    }
+    format!("{error}{root}")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::model::{Body, KeyValue, Request};
+
+    #[tokio::test]
+    async fn a_refused_connection_says_why() {
+        // Nothing listens on port 1, so the OS refuses at once.
+        let error = reqwest::Client::new().get("http://127.0.0.1:1/").send().await.unwrap_err();
+        let said = describe(&error).to_lowercase();
+        assert!(said.starts_with("could not connect"), "{said}");
+        assert!(said.contains("refused") || said.contains("10061") || said.contains("111"), "the cause is kept: {said}");
+    }
 
     fn ctx_vars() -> HashMap<String, String> {
         [("baseUrl".to_string(), "https://httpbin.org".to_string()), ("userId".to_string(), "42".to_string())]

@@ -5,11 +5,26 @@ const emit = defineEmits<{ close: [] }>()
 // Opened from a folder's menu, the runner starts on that folder.
 const target = ref(store.runnerTarget ?? '')
 const stopOnFailure = ref(false)
+/** A CSV or JSON file: one pass per row, its columns as variables. */
+const data = ref('')
+
+async function chooseData() {
+  const { open } = await import('@tauri-apps/plugin-dialog')
+  const picked = await open({
+    title: 'Choose a data file: CSV with a header line, or a JSON array of objects',
+    multiple: false,
+    directory: false,
+    filters: [{ name: 'CSV or JSON', extensions: ['csv', 'json'] }],
+  })
+  if (typeof picked === 'string') data.value = picked
+}
+const dataName = computed(() => data.value.split(/[\\/]/).pop() ?? '')
+const rows = computed(() => new Set(store.lastRun?.steps.map((step) => step.iteration).filter(Boolean)).size)
 
 const folders = computed(() => [{ value: '', label: 'The whole collection' }, ...store.folders.map((folder) => ({ value: folder.id, label: folder.name }))])
 
 async function run() {
-  await store.runCollection(target.value || null, stopOnFailure.value)
+  await store.runCollection(target.value || null, stopOnFailure.value, data.value || null)
 }
 
 function openStep(id: string) {
@@ -31,6 +46,14 @@ function openStep(id: string) {
 
     <div class="bar">
       <UiSelect v-model="target" :options="folders" label="What to run" class="what" />
+      <span class="data">
+        <button type="button" class="btn btn-sm" :title="data || 'Run once per row of a CSV or JSON file'" @click="chooseData">
+          <UiIcon name="file" :size="14" />{{ data ? dataName : 'Data file…' }}
+        </button>
+        <button v-if="data" type="button" class="icon-btn quiet sm" aria-label="Run without the data file" title="Run without it" @click="data = ''">
+          <UiIcon name="x" :size="13" />
+        </button>
+      </span>
       <label class="stop">
         <input v-model="stopOnFailure" type="checkbox">
         <span>Stop at the first failure</span>
@@ -46,17 +69,18 @@ function openStep(id: string) {
         <span class="led" :class="store.lastRun.failed ? 'bad' : 'ok'" />
         <span class="num">{{ store.lastRun.passed }} passed</span>
         <span class="num">{{ store.lastRun.failed }} failed</span>
+        <span v-if="rows" class="silk num">{{ rows }} {{ rows === 1 ? 'row' : 'rows' }}</span>
         <span class="silk num">{{ store.lastRun.durationMs }} ms</span>
       </div>
 
       <ul class="steps">
-        <li v-for="step in store.lastRun.steps" :key="step.id" :class="{ bad: !step.ok }">
+        <li v-for="(step, n) in store.lastRun.steps" :key="n" :class="{ bad: !step.ok }">
           <button type="button" class="step" @click="openStep(step.id)">
-            <span class="led" :class="step.ok ? 'ok' : 'bad'" />
+            <span class="led" :class="step.skipped ? 'off' : step.ok ? 'ok' : 'bad'" />
             <span class="method" :data-method="step.method">{{ step.method }}</span>
-            <span class="name">{{ step.name }}</span>
+            <span class="name"><span v-if="step.iteration" class="row-no num" :title="`Row ${step.iteration} of the data file`">#{{ step.iteration }}</span>{{ step.name }}</span>
             <span class="outcome silk">
-              {{ step.error ?? (step.status ? `${step.status} · ${step.durationMs} ms` : 'no response') }}
+              {{ step.skipped ?? step.error ?? (step.status ? `${step.status} · ${step.durationMs} ms` : 'no response') }}
             </span>
           </button>
           <ul v-if="step.checks.some((check) => !check.ok) || step.captured.length" class="detail">
@@ -92,6 +116,9 @@ function openStep(id: string) {
 
 .bar { display: flex; align-items: center; gap: var(--s-3); padding-bottom: var(--s-3); border-bottom: 1px solid var(--line-soft); }
 .what { flex: 1; max-width: 300px; }
+.data { display: flex; align-items: center; gap: 2px; }
+.data .btn { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-no { margin-right: 8px; color: var(--faint); font-size: var(--t-meta); }
 .stop { display: flex; align-items: center; gap: var(--s-2); font-size: var(--t-small); cursor: pointer; }
 
 .summary { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-3) 0; font-size: var(--t-small); }

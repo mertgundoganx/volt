@@ -25,7 +25,8 @@ function hostOf(url: string | null | undefined): string | null {
 
 export function explain(raw: string, url?: string | null, timeoutMs?: number): Explained {
   const host = hostOf(url)
-  const at = host ? ` ${host}` : ''
+  // A URL still holding `{{baseUrl}}` has no host to name; say "the server".
+  const at = ` ${host ?? 'the server'}`
   const lower = raw.toLowerCase()
   const keep = (text: string): Explained => ({ text, raw, certificate: false })
 

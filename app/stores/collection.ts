@@ -76,6 +76,11 @@ const TIPS_KEY = 'tips'
  */
 export const SUPPLIED = [
   '$timestamp', '$isoTimestamp', '$guid', '$uuid', '$randomInt', '$body',
+  // Made-up test data, under the names Postman uses.
+  '$randomUUID', '$randomBoolean', '$randomFirstName', '$randomLastName', '$randomFullName', '$randomUserName',
+  '$randomEmail', '$randomPhoneNumber', '$randomCity', '$randomCountry', '$randomStreetAddress', '$randomCompanyName',
+  '$randomWord', '$randomLoremSentence', '$randomAlphaNumeric', '$randomHexColor', '$randomIP', '$randomUrl',
+  '$randomPrice', '$randomDatePast', '$randomDateFuture',
   '$base64(', '$sha256(', '$md5(', '$hmacSha256(', '$hmacSha256Base64(', '$urlencode(', '$upper(', '$lower(',
 ]
 
@@ -206,6 +211,14 @@ export interface MonitorRun {
  * timer id in a reactive object is how you end up with two of them running.
  */
 const monitorTimers = new Map<string, ReturnType<typeof setInterval>>()
+
+/**
+ * Events for a connection the UI does not know yet. Rust emits `open`, and
+ * whatever the server says straight away, before `open_stream` has returned
+ * the id — so a greeting sent on connect used to be dropped. They wait here
+ * until the id is known. Not state: nothing renders them.
+ */
+let earlyStreamEvents: StreamEvent[] = []
 
 function scheduleMonitor(store: ReturnType<typeof useCollectionStore>, monitor: Monitor) {
   clearMonitor(monitor.id)
@@ -435,8 +448,8 @@ export const useCollectionStore = defineStore('collection', {
     },
 
     /** Put a failure on the banner, in the user's words where there are any. */
-    fail(e: unknown, url?: string | null) {
-      const explained = explain(describe(e), url, this.options.timeoutMs)
+    fail(e: unknown, url?: string | null, timeoutMs?: number | null) {
+      const explained = explain(describe(e), url, timeoutMs ?? this.options.timeoutMs)
       this.error = explained.text
       this.errorDetail = explained.raw
       this.errorCertificate = explained.certificate
@@ -547,12 +560,14 @@ export const useCollectionStore = defineStore('collection', {
       const root = this.root
       if (!root || this.restoringTabs) return
       this.snapshot()
-      const tabs = this.tabs
-        .filter((tab) => !tab.historyEntry && tab.id)
-        .map((tab) => ({ id: tab.id, dirty: tab.dirty, request: tab.dirty ? tab.request : null }))
+      const kept = this.tabs.filter((tab) => !tab.historyEntry && tab.id)
+      const tabs = kept.map((tab) => ({ id: tab.id, dirty: tab.dirty, request: tab.dirty ? tab.request : null }))
+      // The active tab by what it is, not where it was: history tabs are not
+      // kept, so the positions shift.
+      const active = kept.indexOf(this.tabs[this.activeTab]!)
       const store = await loadStore('volt.json', { autoSave: true })
       const all = (await store.get<Record<string, unknown>>(TABS_KEY)) ?? {}
-      all[root] = { activeTab: Math.max(0, Math.min(this.activeTab, tabs.length - 1)), tabs }
+      all[root] = { activeTab: Math.max(0, active), tabs }
       await store.set(TABS_KEY, all)
     },
 
@@ -661,6 +676,23 @@ export const useCollectionStore = defineStore('collection', {
       await this.attempt(() => this.load(path))
     },
 
+    /**
+     * A file for a request to send. Inside the collection it is kept relative,
+     * so the request still finds it on a teammate's machine; outside, the
+     * whole path is kept and only works here.
+     */
+    async pickFile(title: string): Promise<string | null> {
+      const picked = await this.attempt(async () => openDialog({ title, multiple: false, directory: false }))
+      if (typeof picked !== 'string') return null
+      const root = this.root
+      if (!root) return picked
+      const norm = (path: string) => path.replace(/[\\/]+/g, '/').replace(/\/$/, '')
+      const base = norm(root)
+      const file = norm(picked)
+      if (file.toLowerCase().startsWith(`${base.toLowerCase()}/`)) return file.slice(base.length + 1)
+      return picked
+    },
+
     async browseAndOpen() {
       await this.attempt(async () => {
         const path = await openDialog({ directory: true, multiple: false })
@@ -689,12 +721,13 @@ export const useCollectionStore = defineStore('collection', {
     async browseAndImport() {
       await this.attempt(async () => {
         const source = await openDialog({
-          title: 'Choose a Postman or Insomnia export',
+          title: 'Choose a Postman, Insomnia or OpenAPI file — or a Postman environment',
           multiple: false,
           directory: false,
-          filters: [{ name: 'Postman or Insomnia export', extensions: ['json', 'yaml', 'yml'] }],
+          filters: [{ name: 'Postman, Insomnia, OpenAPI or environment', extensions: ['json', 'yaml', 'yml'] }],
         })
         if (typeof source !== 'string') return
+        if (await this.importEnvironment(source)) return
 
         const into = await openDialog({
           title: 'Choose where to create the collection',
@@ -707,6 +740,22 @@ export const useCollectionStore = defineStore('collection', {
         await this.load(outcome.report.path)
         this.importReport = outcome.report
       })
+    },
+
+    /**
+     * A Postman environment file goes into the open collection, not into a
+     * new one. False when the file is not one, or nothing is open to hold it.
+     * Throws, for callers already inside `attempt()`.
+     */
+    async importEnvironment(source: string): Promise<boolean> {
+      const root = this.root
+      if (!root) return false
+      const name = await invoke<string | null>('import_environment', { root, source })
+      if (!name) return false
+      await this.reload()
+      this.activeEnvironment = name
+      this.notify(`Environment ${name} imported`, 'Secret values went to the gitignored .env file.')
+      return true
     },
 
     async reload() {
@@ -1002,7 +1051,8 @@ export const useCollectionStore = defineStore('collection', {
         let opened: string | null = null
         let report: ImportOutcome['report'] | null = null
         for (const path of paths) {
-          if (/.(json|ya?ml)$/i.test(path)) {
+          if (/\.(json|ya?ml)$/i.test(path)) {
+            if (await this.importEnvironment(path)) continue
             const into = await invoke<string>('imports_dir')
             const outcome = await invoke<ImportOutcome>('import_collection', { source: path, into })
             opened = outcome.report.path
@@ -1808,6 +1858,7 @@ export const useCollectionStore = defineStore('collection', {
       try {
         const raw = await invoke<ApiRequest>('get_request', { root: monitor.root, id: monitor.requestId })
         const outcome = await invoke<SendOutcome>('send_request', {
+          token: `monitor-${monitor.id}-${Date.now()}`,
           root: monitor.root,
           request: normalizeRequest(raw),
           envVars: this.environment?.vars ?? [],
@@ -1815,7 +1866,11 @@ export const useCollectionStore = defineStore('collection', {
           requestId: monitor.requestId,
           environment: this.environment?.name ?? null,
         })
-        this.noteRun(monitor, outcome.response.status, outcome.response.durationMs, null)
+        // A monitor is watching for what the request's tests say, not only
+        // for a status: a 200 with the wrong body is still a failure.
+        const failing = outcome.checks.find((check) => !check.ok)
+        const why = failing ? `Test failed: ${failing.from} ${failing.note ?? `${failing.op} ${failing.expected}, got ${failing.actual ?? 'nothing'}`}` : null
+        this.noteRun(monitor, outcome.response.status, outcome.response.durationMs, why)
         if (outcome.history) this.history = [outcome.history, ...this.history].slice(0, HISTORY_LIMIT)
       } catch (error) {
         this.noteRun(monitor, null, null, String((error as Error)?.message ?? error))
@@ -1942,9 +1997,17 @@ export const useCollectionStore = defineStore('collection', {
           requestId: this.activeId,
           kind,
         })
-        this.stream = open
-        this.streamOwner = this.activeId
+        this.adoptStream(open)
       })
+    },
+
+    /** The connection is ours: take it, and what it said before we knew it. */
+    adoptStream(open: StreamOpen) {
+      this.stream = open
+      this.streamOwner = this.activeId
+      const early = earlyStreamEvents.filter((event) => event.id === open.id)
+      earlyStreamEvents = []
+      for (const event of early) this.noteStreamEvent(event)
     },
 
     async closeStream() {
@@ -1964,7 +2027,10 @@ export const useCollectionStore = defineStore('collection', {
 
     /** Events arrive on one channel; this keeps the open one's. */
     noteStreamEvent(event: StreamEvent) {
-      if (!this.stream || event.id !== this.stream.id) return
+      if (!this.stream || event.id !== this.stream.id) {
+        earlyStreamEvents = [...earlyStreamEvents, event].slice(-200)
+        return
+      }
       this.streamEvents = [...this.streamEvents, event].slice(-500)
       // `streamOwner` is deliberately kept: the transcript of a connection that
       // has ended still belongs to the request that opened it, and clearing it
@@ -2008,14 +2074,14 @@ export const useCollectionStore = defineStore('collection', {
         const root = this.requireRoot()
         if (!this.request) throw new Error('Open a request first.')
         this.streamEvents = []
-        this.stream = await invoke<StreamOpen>('open_grpc_stream', {
+        const open = await invoke<StreamOpen>('open_grpc_stream', {
           root,
           request: this.request,
           envVars: this.environment?.vars ?? [],
           options: this.options,
           requestId: this.activeId,
         })
-        this.streamOwner = this.activeId
+        this.adoptStream(open)
       })
     },
 
@@ -2040,7 +2106,7 @@ export const useCollectionStore = defineStore('collection', {
     },
 
     /** Run a folder, or the whole collection when `target` is null. */
-    async runCollection(target: string | null, stopOnFailure: boolean): Promise<Run | null> {
+    async runCollection(target: string | null, stopOnFailure: boolean, data: string | null = null): Promise<Run | null> {
       this.running = true
       try {
         const run = await this.attempt(async () =>
@@ -2050,6 +2116,7 @@ export const useCollectionStore = defineStore('collection', {
             envVars: this.environment?.vars ?? [],
             options: this.options,
             stopOnFailure,
+            data,
           }),
         )
         this.lastRun = run ?? null
@@ -2086,6 +2153,7 @@ export const useCollectionStore = defineStore('collection', {
 
       const token = crypto.randomUUID()
       const url = this.request.url
+      const timeoutMs = this.request.options?.timeout_ms ?? null
       this.sending = true
       this.sendToken = token
       this.error = null
@@ -2105,7 +2173,13 @@ export const useCollectionStore = defineStore('collection', {
           })
         } catch (e) {
           // Cancelled is what the user asked for; it is not an error to show.
-          if (this.sendToken === token && !/cancelled$/.test(describe(e))) this.fail(e, url)
+          if (this.sendToken === token && !/cancelled$/.test(describe(e))) {
+            // Name the host the error is about, not the `{{baseUrl}}` it was written as.
+            const where = await invoke<{ value: string }>('preview', { input: url, envVars: this.environment?.vars ?? [] })
+              .then((out) => out.value)
+              .catch(() => url)
+            this.fail(e, where, timeoutMs)
+          }
         }
 
         // Cancelled, or a different collection is open now: this answer is

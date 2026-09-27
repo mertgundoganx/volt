@@ -24,7 +24,7 @@ const known = computed(() => store.variableNames)
 type BodyKind = Body['type']
 type AuthKind = Auth['type']
 
-const bodyKinds: SegmentOption<Exclude<BodyKind, 'binary'>>[] = [
+const bodyKinds: SegmentOption<BodyKind>[] = [
   { value: 'none', label: 'None' },
   { value: 'json', label: 'JSON' },
   { value: 'text', label: 'Text' },
@@ -32,6 +32,7 @@ const bodyKinds: SegmentOption<Exclude<BodyKind, 'binary'>>[] = [
   { value: 'urlencoded', label: 'URL-encoded' },
   { value: 'form', label: 'Multipart' },
   { value: 'graphql', label: 'GraphQL' },
+  { value: 'binary', label: 'File' },
 ]
 
 const authKinds: SegmentOption<AuthKind>[] = [
@@ -114,6 +115,7 @@ const CHECK_OPS: SegmentOption<Check['op']>[] = [
   { value: 'is', label: 'is' },
   { value: 'isnot', label: 'is not' },
   { value: 'contains', label: 'contains' },
+  { value: 'matches', label: 'matches' },
   { value: 'exists', label: 'exists' },
   { value: 'missing', label: 'missing' },
   { value: 'under', label: 'under' },
@@ -212,6 +214,7 @@ function setBodyKind(kind: BodyKind) {
     urlencoded: { type: 'urlencoded', fields: [] },
     form: { type: 'form', fields: [] },
     graphql: { type: 'graphql', query: '', variables: '' },
+    binary: { type: 'binary', path: '' },
     grpc: { type: 'grpc', proto: '', method: '', message: '' },
   }
   // Switching between the text kinds keeps what was typed.
@@ -219,8 +222,26 @@ function setBodyKind(kind: BodyKind) {
   const carried = 'content' in current ? current.content : ''
   const body = next[kind]!
   if ('content' in body) body.content = carried
+  // And between the two field kinds, keeps the fields. A file cannot go in a
+  // URL-encoded body, so those rows stay behind.
+  if ('fields' in body && 'fields' in current) {
+    body.fields = current.fields
+      .filter((field) => !('file' in field && field.file) || body.type === 'form')
+      .map((field) => ({ ...field }))
+  }
   request.value.body = body
   store.touch()
+}
+
+function setBinaryPath(path: string) {
+  if (request.value.body.type !== 'binary') return
+  request.value.body.path = path
+  store.touch()
+}
+
+async function chooseBinary() {
+  const path = await store.pickFile('Choose the file to send as the body')
+  if (path) setBinaryPath(path)
 }
 
 function setAuthKind(kind: AuthKind) {
@@ -312,31 +333,48 @@ const composedUrl = computed(() => {
   const current = store.request
   if (!current) return ''
   const url = current.url
-  const query = (current.params ?? [])
-    .filter((p) => p.enabled && (p.name || p.value))
-    .map((p) => `${p.name}=${p.value}`)
-    .join('&')
+  const enabled = (current.params ?? []).filter((p) => p.enabled && (p.name || p.value))
+  // What was typed stays as typed while it still says the same thing: `?a`
+  // written back as `?a=` put the caret after an `=` the person had not
+  // typed, and the `=` they typed next became `a==`.
+  if (typed.value !== null) {
+    const said = splitUrl(typed.value)
+    if (said.url === url && said.params.length === enabled.length && said.params.every((p, i) => p.name === enabled[i]!.name && p.value === enabled[i]!.value)) {
+      return typed.value
+    }
+  }
+  const query = enabled.map((p) => `${p.name}=${p.value}`).join('&')
   return query ? `${url}${url.includes('?') ? '&' : '?'}${query}` : url
 })
 
-function setUrl(text: string) {
+/** The last text typed into the URL, to show back while it still matches. */
+const typed = ref<string | null>(null)
+watch(() => store.activeId, () => (typed.value = null))
+
+function splitUrl(text: string) {
   const at = text.indexOf('?')
+  if (at === -1) return { url: text, params: [] as { name: string; value: string }[] }
+  const params = text
+    .slice(at + 1)
+    .split('&')
+    .filter(Boolean)
+    .map((pair) => {
+      const eq = pair.indexOf('=')
+      return eq === -1 ? { name: pair, value: '' } : { name: pair.slice(0, eq), value: pair.slice(eq + 1) }
+    })
+  return { url: text.slice(0, at), params }
+}
+
+function setUrl(text: string) {
+  typed.value = text
   const disabled = request.value.params.filter((p) => !p.enabled)
-  if (at === -1) {
-    request.value.url = text
-    if (request.value.params.length !== disabled.length) request.value.params = disabled
-  } else {
-    request.value.url = text.slice(0, at)
-    const pairs = text
-      .slice(at + 1)
-      .split('&')
-      .filter(Boolean)
-      .map((pair) => {
-        const eq = pair.indexOf('=')
-        return eq === -1 ? { name: pair, value: '', enabled: true } : { name: pair.slice(0, eq), value: pair.slice(eq + 1), enabled: true }
-      })
-    request.value.params = [...pairs, ...disabled]
-  }
+  const { url, params } = splitUrl(text)
+  request.value.url = url
+  // A ws:// address is a socket whatever the request was: that is what the
+  // person typing it means, and HTTP cannot send it anyway.
+  if (/^wss?:\/\//i.test(text.trim()) && requestKind.value === 'http') requestKind.value = 'websocket'
+  if (text.includes('?')) request.value.params = [...params.map((p) => ({ ...p, enabled: true })), ...disabled]
+  else if (request.value.params.length !== disabled.length) request.value.params = disabled
   store.touch()
 }
 
@@ -553,9 +591,22 @@ useShortcut('mod+s', 'Save the request', () => {
         </div>
 
         <p v-if="request.body.type === 'none'" class="note">This request sends no body.</p>
-        <p v-else-if="request.body.type === 'binary'" class="note">
-          <span>Sends the file <code>{{ request.body.path }}</code> from the collection folder. Edit it in the YAML.</span>
-        </p>
+        <div v-else-if="request.body.type === 'binary'" class="file-body">
+          <UiVarInput
+            :model-value="request.body.path"
+            :known="known"
+            label="File to send"
+            placeholder="uploads/avatar.png"
+            @update:model-value="setBinaryPath($event)"
+          />
+          <button type="button" class="btn btn-sm" @click="chooseBinary">
+            <UiIcon name="folder" :size="14" />Choose…
+          </button>
+          <p class="hint">
+            The file's bytes are the body, sent as they are. A path inside the collection
+            folder is kept relative, so it works on a teammate's machine too.
+          </p>
+        </div>
         <GrpcEditor v-else-if="request.body.type === 'grpc'" v-model="request.body" />
 
         <GraphQlEditor v-else-if="request.body.type === 'graphql'" v-model="request.body" />
@@ -1120,6 +1171,15 @@ useShortcut('mod+s', 'Save the request', () => {
   padding: var(--s-3) var(--s-4);
   flex: none;
 }
+
+.file-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s-2);
+  align-items: center;
+  padding: var(--s-1) var(--s-4) var(--s-4);
+}
+.file-body .hint { grid-column: 1 / -1; margin: 0; color: var(--silk); font-size: var(--t-small); line-height: 1.5; }
 
 .note {
   display: flex;

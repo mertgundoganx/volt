@@ -26,6 +26,15 @@ const contentType = computed(
   () => res.value?.headers.find((h) => h.name.toLowerCase() === 'content-type')?.value.split(';')[0]?.trim() ?? '',
 )
 
+/** An image the webview can draw, as a data URL; the CSP allows `data:` images. */
+const image = computed(() => {
+  const r = res.value
+  if (!r?.bodyIsBase64 || !/^image\/(png|jpe?g|gif|webp|bmp|avif|x-icon|vnd\.microsoft\.icon)$/.test(contentType.value)) return null
+  return `data:${contentType.value};base64,${r.body}`
+})
+const imageSize = ref('')
+watch(image, () => (imageSize.value = ''))
+
 const shown = computed(() => (view.value === 'pretty' && pretty.value.isJson ? pretty.value.text : (res.value?.body ?? '')))
 const language = computed(() => (view.value === 'pretty' && pretty.value.isJson ? 'json' : 'text'))
 
@@ -352,7 +361,11 @@ async function copyBody() {
 
       <div class="viewer">
         <template v-if="tab === 'body'">
-          <div v-if="res.bodyIsBase64" class="blank">
+          <div v-if="image" class="picture">
+            <img :src="image" alt="The response, as an image" @load="imageSize = `${($event.target as HTMLImageElement).naturalWidth} × ${($event.target as HTMLImageElement).naturalHeight}`">
+            <p class="silk">{{ contentType }}<template v-if="imageSize"> · {{ imageSize }}</template> · {{ size.value }} {{ size.unit }}</p>
+          </div>
+          <div v-else-if="res.bodyIsBase64" class="blank">
             <UiIcon name="file" :size="18" />
             <p><b>Binary response</b>, {{ size.value }} {{ size.unit }}<template v-if="contentType"> of <code>{{ contentType }}</code></template>. It is not shown as text.</p>
           </div>
@@ -570,6 +583,17 @@ async function copyBody() {
 .viewer { flex: 1; min-height: 0; overflow: auto; }
 /* Sandboxed with nothing allowed: no scripts, no forms, no navigation. */
 .preview { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
+
+/* A checkerboard behind the image, so transparency reads as transparency. */
+.picture { display: grid; align-content: start; justify-items: center; gap: var(--s-3); padding: var(--s-5); }
+.picture img {
+  max-width: 100%;
+  max-height: 70vh;
+  image-rendering: auto;
+  background: repeating-conic-gradient(var(--line-soft) 0 25%, transparent 0 50%) 0 0 / 16px 16px;
+  border: 1px solid var(--line);
+}
+.picture p { margin: 0; font-size: var(--t-meta); }
 
 .blank { display: grid; place-items: center; padding: var(--s-8) var(--s-5); color: var(--silk); font-size: var(--t-small); }
 .nothing { display: grid; gap: var(--s-3); justify-items: center; text-align: center; }

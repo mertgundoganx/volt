@@ -77,13 +77,19 @@ folder becomes a request there. A request can be copied, or moved, to
 another collection from its menu. Large JSON folds. Shortcuts are one key
 away (?) and a click away in Settings.
 
+A `ws://` address makes the request a WebSocket as you type it. A **File**
+body and a multipart file field each have a **Choose…** that picks the file,
+kept relative when it is inside the collection so it works on a teammate's
+machine too. History has a filter: words match the URL and name, `404`,
+`5xx` and `error` match how it came back.
+
 ## Reading a response
 
 Pretty, Tree and Raw. In the tree, every row shows its path and a **Capture**
 key that adds `$.data.token` to the request's captures, named after the field
 — the next send fills it. An HTML response gets a **Preview**, rendered in a
-sandbox that allows nothing. The diff key compares this send with the
-previous one, line by line.
+sandbox that allows nothing. An image is drawn, with its size. The diff key
+compares this send with the previous one, line by line.
 
 Typing `{{` anywhere a variable can go lists the names that exist — yours,
 the collection's, and the ones volt supplies.
@@ -100,7 +106,9 @@ Most of it is where you expect it. What differs, differs for a reason:
 | `pm.environment.set(...)` | **Captures** tab: a path into the response, saved into the environment as a secret |
 | Save as example | **Examples** on the response, kept as a file beside the request and redacted |
 | Mock server (hosted) | Mock server on this machine, from the saved examples |
-| Collection Runner | **Run…** in the collection menu, and the same from a terminal |
+| Collection Runner, with a data file | **Run…** in the collection menu with **Data file…** (CSV or JSON, one pass per row), and the same from a terminal with `--data` |
+| An exported environment file | Drop it on the window, or **Import…** it: it becomes an environment of the open collection, secrets kept out of the YAML |
+| `{{$randomEmail}}` and the other `$random…` values | The same names, made up the same way |
 | Duplicate, Ctrl+D | The same |
 | Sync to the cloud | The collection is files in your repository; **Sync…** pulls, commits and pushes it |
 
@@ -172,6 +180,16 @@ Four values are always defined without you doing anything: `{{$timestamp}}`
 worked out once per send, so two uses in the same request match. Define a
 variable with one of those names and yours wins.
 
+For test data there are Postman's made-up values under Postman's names:
+`{{$randomFirstName}}`, `{{$randomLastName}}`, `{{$randomFullName}}`,
+`{{$randomUserName}}`, `{{$randomEmail}}`, `{{$randomPhoneNumber}}`,
+`{{$randomCity}}`, `{{$randomCountry}}`, `{{$randomStreetAddress}}`,
+`{{$randomCompanyName}}`, `{{$randomWord}}`, `{{$randomLoremSentence}}`,
+`{{$randomAlphaNumeric}}`, `{{$randomBoolean}}`, `{{$randomUUID}}`,
+`{{$randomHexColor}}`, `{{$randomIP}}`, `{{$randomUrl}}`, `{{$randomPrice}}`,
+`{{$randomDatePast}}` and `{{$randomDateFuture}}`. The email belongs to the
+user name, which belongs to the name, so one request reads as one person.
+
 
 ### Chaining
 
@@ -215,7 +233,8 @@ time you save an environment its values are moved into per-environment files.
 
 A request can carry *checks*: what has to be true of the response. They read
 the same places a capture does — `status`, `time`, `header:Name`, `body`, a
-JSON path — and compare with `is`, `contains`, `exists`, `under` and friends.
+JSON path — and compare with `is`, `contains`, `matches` (a regular
+expression), `exists`, `under` and friends.
 
 **Run…** sends every request in a folder or the whole collection in order,
 carrying captured values forward, and reports which checks failed. The same run
@@ -228,6 +247,19 @@ volt-run ./my-api --env prod --stop-on-failure
 It exits 0 when everything passed and 1 when something did not, so CI can use
 it. Captured values live for the length of the run and are not written
 anywhere: a CI job should not leave a token behind it.
+
+A run can take a **data file**: a CSV with a header line, or a JSON array of
+objects. The requests run once per row, with that row's columns as
+`{{variables}}` — over the environment's, for that pass — and the report says
+which row each result came from. Each pass starts clean, so one row's captures
+cannot leak into the next.
+
+```bash
+volt-run ./my-api --env staging --data users.csv
+```
+
+WebSocket, SSE and gRPC requests in a folder are skipped by a run, and say so:
+a run sends HTTP requests and judges them.
 
 ### Other protocols
 
@@ -272,6 +304,11 @@ else, and you can see it, reuse it and share it as a name.
 **Drop a file on the window** to import it: a Postman, Insomnia or OpenAPI
 export becomes a collection beside your personal one and opens; a folder
 opens as it is.
+
+A Postman **environment** export is not a collection, and is not treated as
+one: dropped on the window or imported, it becomes an environment of the
+collection that is open, switched to, with `secret`-typed values and
+credential-looking names kept in the gitignored file.
 
 **Import…** converts a Postman (Collection v2.0 / v2.1), Insomnia (v4 JSON or
 v5 YAML) or OpenAPI/Swagger (3.x or 2.0, JSON or YAML) file into a new
@@ -333,7 +370,9 @@ one you reviewed.
 
 **Generate code…** prints the request as fetch, axios, Python requests, Go,
 C#, PHP or Ruby, resolved exactly the way Send resolves it. Secrets stay as
-placeholders unless you ask for them.
+placeholders unless you ask for them. What a snippet cannot carry — digest,
+NTLM or SigV4 auth, a multipart or file body — is said under it, so it is not
+mistaken for a copy that authenticates.
 
 ### Exporting
 
@@ -399,8 +438,9 @@ Reopen an entry to look at it again, resend it, or save it as a new request.
 
 Requires [Rust](https://rustup.rs) and Node 20+ with pnpm.
 
-There are no prebuilt binaries yet — the first tagged release will attach
-installers for macOS, Linux and Windows.
+Installers for macOS, Linux and Windows are attached to every
+[release](https://github.com/mertgundoganx/volt/releases); an installed volt
+updates itself from there.
 
 ```bash
 pnpm install
@@ -413,7 +453,7 @@ pnpm typecheck    # Vue + TypeScript
 cargo run --manifest-path src-tauri/Cargo.toml --bin volt-run -- ./my-api
 ```
 
-The Rust side has 239 tests — the auth schemes are checked against their
+The Rust side has 254 tests — the auth schemes are checked against their
 published vectors, and the mock server, the WebSocket, SSE and gRPC paths are
 tested over real loopback sockets rather than mocks. The UI is driven in a real
 browser with Playwright.

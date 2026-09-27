@@ -73,6 +73,9 @@ pub struct Generated {
     pub hidden: Vec<String>,
     /// Variables with no value anywhere.
     pub undefined: Vec<String>,
+    /// What the snippet does not do that the request does, so it is not
+    /// mistaken for a copy that authenticates or uploads.
+    pub notes: Vec<String>,
 }
 
 pub fn generate(
@@ -92,11 +95,28 @@ pub fn generate(
     let (hidden, undefined): (Vec<String>, Vec<String>) =
         plan.missing.iter().cloned().partition(|name| secret_names.contains(name.as_str()));
 
+    let mut notes = Vec::new();
+    if plan.digest.is_some() {
+        notes.push("Digest auth is answered after the server's challenge, so it is not in the snippet; use the language's digest support.".to_string());
+    }
+    if plan.ntlm.is_some() {
+        notes.push("NTLM is a three-step handshake and is not in the snippet; use an NTLM-capable client.".to_string());
+    }
+    if plan.aws.is_some() {
+        notes.push("AWS Signature V4 is computed at send time and is not in the snippet; sign it with the AWS SDK.".to_string());
+    }
+    match &plan.body {
+        PlanBody::Multipart(_) => notes.push("The multipart body is a placeholder; build it with the language's form helper.".to_string()),
+        PlanBody::File { .. } => notes.push("The file body is a placeholder; read the file and send its bytes.".to_string()),
+        _ => {}
+    }
+
     Ok(Generated {
         code: render(&plan, &options.for_request(request), language),
         syntax: language.syntax(),
         hidden,
         undefined,
+        notes,
     })
 }
 

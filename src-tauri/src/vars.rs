@@ -225,14 +225,114 @@ fn percent_encode(text: &str) -> String {
 pub fn dynamics() -> HashMap<String, String> {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let id = guid();
-    HashMap::from([
+    let mut out = HashMap::from([
         ("$timestamp".to_string(), now.to_string()),
         ("$isoTimestamp".to_string(), iso8601(now)),
         ("$guid".to_string(), id.clone()),
         // The same value under the name people also reach for.
         ("$uuid".to_string(), id),
         ("$randomInt".to_string(), (random_u64() % 1001).to_string()),
-    ])
+    ]);
+    out.extend(fakes());
+    out
+}
+
+/// The names Postman's `{{$random…}}` values go by, so an imported request
+/// that fills a form with a made-up person still sends one. Plausible, not
+/// realistic: test data, never anything to rely on.
+#[cfg(test)]
+pub const FAKE_NAMES: &[&str] = &[
+    "$randomUUID",
+    "$randomBoolean",
+    "$randomFirstName",
+    "$randomLastName",
+    "$randomFullName",
+    "$randomUserName",
+    "$randomEmail",
+    "$randomPhoneNumber",
+    "$randomCity",
+    "$randomCountry",
+    "$randomStreetAddress",
+    "$randomCompanyName",
+    "$randomWord",
+    "$randomLoremSentence",
+    "$randomAlphaNumeric",
+    "$randomHexColor",
+    "$randomIP",
+    "$randomUrl",
+    "$randomPrice",
+    "$randomDatePast",
+    "$randomDateFuture",
+];
+
+fn pick<'a>(from: &[&'a str]) -> &'a str {
+    from[(random_u64() % from.len() as u64) as usize]
+}
+
+fn fakes() -> Vec<(String, String)> {
+    const FIRST: &[&str] = &["Ada", "Alan", "Grace", "Linus", "Margaret", "Ken", "Barbara", "Dennis", "Radia", "Tim", "Elif", "Mert", "Zeynep", "Can", "Ayşe", "Yuki"];
+    const LAST: &[&str] = &["Lovelace", "Turing", "Hopper", "Torvalds", "Hamilton", "Thompson", "Liskov", "Ritchie", "Perlman", "Berners-Lee", "Yılmaz", "Demir", "Kaya", "Tanaka"];
+    const CITY: &[&str] = &["Istanbul", "Izmir", "Berlin", "Lisbon", "Osaka", "Toronto", "Nairobi", "Lima", "Oslo", "Melbourne"];
+    const COUNTRY: &[&str] = &["Türkiye", "Germany", "Portugal", "Japan", "Canada", "Kenya", "Peru", "Norway", "Australia", "Brazil"];
+    const STREET: &[&str] = &["Maple Street", "Station Road", "Harbour Lane", "Hill Avenue", "Park Road", "Mill Lane"];
+    const COMPANY: &[&str] = &["Acme", "Globex", "Initech", "Umbrella", "Hooli", "Stark", "Wayne", "Tyrell"];
+    const SUFFIX: &[&str] = &["Inc", "Ltd", "Group", "Labs", "Systems", "and Sons"];
+    const WORDS: &[&str] = &["alpha", "bridge", "copper", "delta", "ember", "falcon", "garden", "harbor", "island", "juniper", "kettle", "lantern", "meadow", "nectar", "orbit", "pepper", "quartz", "river", "summit", "timber", "umber", "velvet", "willow", "zephyr"];
+
+    let first = pick(FIRST);
+    let last = pick(LAST);
+    let ascii = |text: &str| -> String {
+        text.chars()
+            .map(|c| match c {
+                'ş' => 's', 'ç' => 'c', 'ğ' => 'g', 'ı' => 'i', 'ö' => 'o', 'ü' => 'u', 'Ş' => 's', 'Ç' => 'c', 'Ö' => 'o', 'Ü' => 'u', 'İ' => 'i',
+                other => other.to_ascii_lowercase(),
+            })
+            .filter(|c| c.is_ascii_alphanumeric())
+            .collect()
+    };
+    let user = format!("{}.{}{}", ascii(first), ascii(last), random_u64() % 100);
+    let alnum: String = (0..10)
+        .map(|_| {
+            let n = (random_u64() % 36) as u8;
+            if n < 10 { (b'0' + n) as char } else { (b'a' + n - 10) as char }
+        })
+        .collect();
+    let sentence = {
+        let words: Vec<&str> = (0..6 + random_u64() % 5).map(|_| pick(WORDS)).collect();
+        let mut text = words.join(" ");
+        if let Some(first) = text.get_mut(0..1) {
+            first.make_ascii_uppercase();
+        }
+        format!("{text}.")
+    };
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let day = 86_400;
+    let past = now.saturating_sub(day + random_u64() % (365 * day));
+    let future = now + day + random_u64() % (365 * day);
+
+    vec![
+        ("$randomUUID".into(), guid()),
+        ("$randomBoolean".into(), random_u64().is_multiple_of(2).to_string()),
+        ("$randomFirstName".into(), first.into()),
+        ("$randomLastName".into(), last.into()),
+        ("$randomFullName".into(), format!("{first} {last}")),
+        ("$randomUserName".into(), user.clone()),
+        ("$randomEmail".into(), format!("{user}@example.com")),
+        ("$randomPhoneNumber".into(), format!("+1-555-{:03}-{:04}", random_u64() % 1000, random_u64() % 10_000)),
+        ("$randomCity".into(), pick(CITY).into()),
+        ("$randomCountry".into(), pick(COUNTRY).into()),
+        ("$randomStreetAddress".into(), format!("{} {}", 1 + random_u64() % 999, pick(STREET))),
+        ("$randomCompanyName".into(), format!("{} {}", pick(COMPANY), pick(SUFFIX))),
+        ("$randomWord".into(), pick(WORDS).into()),
+        ("$randomLoremSentence".into(), sentence),
+        ("$randomAlphaNumeric".into(), alnum),
+        ("$randomHexColor".into(), format!("#{:06x}", random_u64() & 0xFF_FFFF)),
+        ("$randomIP".into(), format!("{}.{}.{}.{}", 1 + random_u64() % 223, random_u64() % 256, random_u64() % 256, 1 + random_u64() % 254)),
+        ("$randomUrl".into(), format!("https://{}.example.com", pick(WORDS))),
+        ("$randomPrice".into(), format!("{}.{:02}", random_u64() % 1000, random_u64() % 100)),
+        ("$randomDatePast".into(), iso8601(past)),
+        ("$randomDateFuture".into(), iso8601(future)),
+    ]
 }
 
 /// splitmix64 over the clock and a counter, so two calls in the same
@@ -284,6 +384,21 @@ pub(crate) fn civil_from_days(days: i64) -> (i64, u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn made_up_values_cover_every_name_and_look_the_part() {
+        let d = dynamics();
+        for name in FAKE_NAMES {
+            assert!(d.get(*name).is_some_and(|value| !value.is_empty()), "{name} has a value");
+        }
+        let email = &d["$randomEmail"];
+        assert!(email.ends_with("@example.com") && email.is_ascii(), "{email}");
+        assert!(email.starts_with(&d["$randomUserName"]), "the email is the user name's");
+        assert!(["true", "false"].contains(&d["$randomBoolean"].as_str()));
+        assert_eq!(d["$randomHexColor"].len(), 7);
+        assert!(d["$randomDatePast"] < d["$randomDateFuture"]);
+        assert_eq!(interpolate("{{$randomFirstName}}", &d).missing, Vec::<String>::new());
+    }
 
     fn ctx(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()

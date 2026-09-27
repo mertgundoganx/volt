@@ -51,6 +51,13 @@ fn one(check: &Check, response: &HttpResponse, body: Option<&serde_json::Value>)
         Op::Is => actual.as_deref() == Some(expected.as_str()),
         Op::IsNot => actual.as_deref() != Some(expected.as_str()),
         Op::Contains => actual.as_deref().is_some_and(|value| value.contains(&expected)),
+        Op::Matches => match regex::Regex::new(&expected) {
+            Ok(pattern) => actual.as_deref().is_some_and(|value| pattern.is_match(value)),
+            Err(error) => {
+                note = Some(format!("`{expected}` is not a pattern: {}", error.to_string().lines().last().unwrap_or("")));
+                false
+            }
+        },
         Op::Exists => actual.is_some(),
         Op::Missing => actual.is_none(),
         Op::Under | Op::Over => match (number(actual.as_deref()), number(Some(&expected))) {
@@ -88,6 +95,8 @@ pub enum Op {
     Is,
     IsNot,
     Contains,
+    /// A regular expression, found anywhere in the value; anchor it with ^ and $.
+    Matches,
     Exists,
     Missing,
     Under,
@@ -100,6 +109,7 @@ impl Op {
             Op::Is => "is",
             Op::IsNot => "is not",
             Op::Contains => "contains",
+            Op::Matches => "matches",
             Op::Exists => "exists",
             Op::Missing => "is missing",
             Op::Under => "under",
@@ -166,6 +176,24 @@ mod tests {
         assert!(results.iter().all(|r| r.ok), "{results:#?}");
         assert_eq!(results[0].actual.as_deref(), Some("200"));
         assert_eq!(results[1].op, "contains");
+    }
+
+    #[test]
+    fn a_pattern_matches_anywhere_and_a_broken_one_says_so() {
+        let response = response(200, r#"{"data":{"id":"a-1","email":"Ada@Example.com"}}"#, 10);
+        let results = run(
+            &[
+                check("$.data.id", Op::Matches, r"^[a-z]-\d+$"),
+                check("$.data.email", Op::Matches, r"(?i)@example\.com$"),
+                check("$.data.id", Op::Matches, "^b"),
+                check("$.data.id", Op::Matches, "(["),
+            ],
+            &response,
+        );
+        assert!(results[0].ok && results[1].ok, "{results:?}");
+        assert!(!results[2].ok && results[2].note.is_none());
+        assert!(!results[3].ok && results[3].note.as_deref().is_some_and(|n| n.contains("not a pattern")), "{:?}", results[3]);
+        assert_eq!(results[0].op, "matches");
     }
 
     #[test]

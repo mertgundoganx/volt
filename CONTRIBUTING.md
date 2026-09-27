@@ -291,7 +291,7 @@ touches the seam between the two — IPC payloads, the URL bar, Send.
 ```bash
 cargo install tauri-driver --locked
 # msedgedriver has to match the installed WebView2 (see the version under
-# "C:Program Files (x86)MicrosoftEdgeWebViewApplication"):
+# "C:\Program Files (x86)\Microsoft\EdgeWebView\Application"):
 #   https://msedgedriver.microsoft.com/<version>/edgedriver_win64.zip
 pnpm tauri build --debug --no-bundle     # src-tauri/target/debug/volt.exe with the SPA embedded
 EDGEDRIVER=path/to/msedgedriver.exe node tests/e2e/drive.mjs
@@ -302,6 +302,41 @@ The test hands volt a throwaway collection as an argument, which is what
 the last one, so the test never touches a collection of yours. (A WebDriver
 passes every argument on as a `--switch`, which is why leading dashes are
 dropped before the path is checked.) It needs no package beyond Node itself.
+
+### Every feature, on the real binary
+
+`tests/e2e/suite/` is the same approach made thorough: three suites and a
+local server (`server.mjs`) with an endpoint for each thing the app has to
+handle — echo, status codes, slow, cookies, redirects, basic auth, a login
+that hands out a token, HTML, an image, a large JSON body, server-sent
+events, a WebSocket, GraphQL and an OAuth token endpoint.
+
+| Suite | What it drives |
+| --- | --- |
+| `http.mjs` | Sending, the URL bar and params, bodies, auth, captures, tests, cookies, redirects, cancel, the response views, the tree, environments and secrets, curl, code, history, the runner, import and export, WebSocket and SSE, GraphQL, the mock server, themes, tabs across a restart |
+| `around.mjs` | Collection and folder settings, per-request options, OAuth, the cookie jar, the bin, copying to another collection, monitors, keyboard shortcuts, runner skips, examples, the undefined-variable link, history to a request |
+| `additions.mjs` | Made-up values, `matches`, the history filter, images, file bodies, environment import, data files, code notes, the client certificate setting, `ws://` detection |
+
+```bash
+EDGEDRIVER=path/to/msedgedriver.exe node tests/e2e/suite/http.mjs
+EDGEDRIVER=path/to/msedgedriver.exe node tests/e2e/suite/around.mjs
+EDGEDRIVER=path/to/msedgedriver.exe node tests/e2e/suite/additions.mjs
+# SECTIONS=http,tree node tests/e2e/suite/http.mjs runs just those sections
+```
+
+Each prints PASS or FAIL per check and exits non-zero on a failure; the
+screenshots go to `E2E_SHOTS` (a temp folder by default). The steps read the
+Pinia store from inside the page as well as the DOM, so a failure says what
+the app believed, not only what it drew. Two things they cannot do: click a
+native dialog (a delete's confirmation, a file picker), so those steps call
+what follows the dialog directly; and keep out of the app's settings — the
+throwaway collections they open land in the recent list of the volt they
+run as.
+
+For a quicker loop while fixing the UI, build once with `cargo build` (no
+`--no-bundle`, no embedded SPA): that binary loads the Nuxt dev server on
+localhost:3000, so a change to a `.vue` file needs no rebuild. Point
+`VOLT_EXE` at it.
 
 ## The command line
 

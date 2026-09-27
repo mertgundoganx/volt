@@ -71,6 +71,12 @@ function parseBulk(input: string) {
 }
 
 
+const store = useCollectionStore()
+async function choose(index: number) {
+  const path = await store.pickFile('Choose the file to send')
+  if (path) update(index, { value: path, file: true })
+}
+
 function remove(index: number) {
   rows.value = display.value.filter((_, i) => i !== index).filter((r) => r.name || r.value)
 }
@@ -151,6 +157,15 @@ function remove(index: number) {
           >
             <UiIcon :name="row.file ? 'file' : 'braces'" :size="13" />
           </button>
+          <button
+            type="button"
+            class="as-file pick"
+            :aria-label="`Choose a file for ${row.name || 'this field'}`"
+            title="Choose a file"
+            @click="choose(i)"
+          >
+            <UiIcon name="folder" :size="13" />
+          </button>
         </span>
         <span class="tools">
           <button
@@ -177,7 +192,7 @@ function remove(index: number) {
   grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1.7fr) 28px;
 }
 .kv.with-files .row {
-  grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1.7fr) 30px 28px;
+  grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1.7fr) 58px 28px;
   gap: var(--s-1);
   align-items: center;
   min-height: 34px;
@@ -221,6 +236,7 @@ function remove(index: number) {
   background: var(--well);
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
+.center { display: flex; gap: 2px; justify-content: center; }
 .as-file.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .as-file:disabled { opacity: 0.3; }
 </style>

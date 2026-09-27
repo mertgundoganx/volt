@@ -65,6 +65,24 @@ const proxy = computed({
   },
 })
 
+const clientCert = computed({
+  get: () => draft.value.clientCert ?? '',
+  set: (value: string) => {
+    draft.value.clientCert = value.trim() || null
+  },
+})
+
+async function chooseCert() {
+  const { open } = await import('@tauri-apps/plugin-dialog')
+  const picked = await open({
+    title: 'Choose a PEM file holding the certificate and its key',
+    multiple: false,
+    directory: false,
+    filters: [{ name: 'PEM', extensions: ['pem', 'crt', 'key'] }],
+  })
+  if (typeof picked === 'string') clientCert.value = picked
+}
+
 function reset() {
   draft.value = defaultExecOptions()
   theme.value = 'system'
@@ -159,6 +177,25 @@ async function save() {
           spellcheck="false"
           placeholder="http://127.0.0.1:8080"
         >
+      </div>
+      <div class="setting">
+        <div class="text">
+          <label class="name" for="client-cert">Client certificate</label>
+          <span class="desc">
+            For servers that ask who you are (mutual TLS): one PEM file with the certificate
+            and its unencrypted key. A request's Options tab can name another.
+          </span>
+        </div>
+        <span class="cert">
+          <input
+            id="client-cert"
+            v-model="clientCert"
+            class="field mono proxy"
+            spellcheck="false"
+            placeholder="none"
+          >
+          <button type="button" class="btn btn-sm" @click="chooseCert">Choose…</button>
+        </span>
       </div>
 
       <div class="setting">
@@ -300,6 +337,8 @@ async function save() {
 .with-unit { display: flex; align-items: center; gap: var(--s-2); }
 .with-unit .field { width: 84px; text-align: right; }
 .proxy { width: 240px; flex: none; }
+.cert { display: flex; gap: var(--s-1); flex: none; }
+.cert .proxy { width: 170px; }
 .cookie-controls { display: flex; align-items: center; gap: var(--s-3); flex: none; }
 .ready { background: var(--accent-tint); box-shadow: inset 0 0 0 1px var(--accent-line); border-radius: var(--r-sm); padding: var(--s-3); }
 </style>

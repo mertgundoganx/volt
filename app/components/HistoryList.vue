@@ -23,13 +23,33 @@ function ago(at: number): string {
   return new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+/**
+ * Narrow the list by what was sent: words match the name, method and URL, and
+ * `4xx`, `404` or `error` match how it came back.
+ */
+const filter = ref('')
+const shown = computed(() => {
+  const words = filter.value.toLowerCase().split(/\s+/).filter(Boolean)
+  if (!words.length) return store.history
+  return store.history.filter((entry) => {
+    const text = `${entry.method} ${entry.name} ${entry.url}`.toLowerCase()
+    return words.every((word) => {
+      if (word === 'error' || word === 'err') return !!entry.error
+      const band = /^([1-5])xx$/.exec(word)
+      if (band) return entry.status !== null && Math.floor(entry.status / 100) === Number(band[1])
+      if (/^\d{3}$/.test(word)) return entry.status === Number(word) || text.includes(word)
+      return text.includes(word)
+    })
+  })
+})
+
 /** Group by calendar day so a long list is scannable. */
 const groups = computed(() => {
   const out: { label: string; entries: HistorySummary[] }[] = []
   const today = new Date(now.value).toDateString()
   const yesterday = new Date(now.value - 86_400_000).toDateString()
 
-  for (const entry of store.history) {
+  for (const entry of shown.value) {
     const day = new Date(entry.at).toDateString()
     const label =
       day === today
@@ -47,8 +67,19 @@ const groups = computed(() => {
 
 <template>
   <div class="history">
+    <div v-if="store.history.length" class="filter">
+      <UiIcon name="search" :size="13" />
+      <input
+        v-model="filter"
+        class="field inline"
+        aria-label="Filter history"
+        placeholder="Filter — a URL, a name, 404, 5xx, error"
+        spellcheck="false"
+        @keydown.esc.prevent="filter = ''"
+      >
+    </div>
     <div class="head">
-      <span class="silk">{{ store.history.length }} sent</span>
+      <span class="silk">{{ filter.trim() ? `${shown.length} of ${store.history.length}` : `${store.history.length} sent` }}</span>
       <span class="spacer" />
       <button type="button" class="btn btn-quiet btn-sm" :disabled="!store.history.length" @click="store.clearHistory()">
         Clear
@@ -59,6 +90,8 @@ const groups = computed(() => {
       <UiIcon name="history" :size="18" />
       <p>Requests you send land here with the response they got. History stays on this machine and never goes into the collection.</p>
     </div>
+
+    <p v-if="store.history.length && !shown.length" class="none">Nothing sent matches</p>
 
     <section v-for="group in groups" :key="group.label" class="group">
       <div class="day silk">{{ group.label }}</div>
@@ -86,6 +119,22 @@ const groups = computed(() => {
 </template>
 
 <style scoped>
+.filter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  margin: var(--s-2) var(--s-2) var(--s-1);
+  padding-left: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--silk);
+}
+.filter:focus-within { border-color: var(--accent); background: var(--well); }
+.filter .field { flex: 1; min-width: 0; height: 26px; font-size: var(--t-small); }
+.filter .field:focus, .filter .field:hover { background: transparent; border-color: transparent; box-shadow: none; }
+.none { margin: 0; padding: var(--s-5) var(--s-4); color: var(--silk); font-size: var(--t-small); text-align: center; }
+
 .head { display: flex; align-items: center; padding: 0 var(--s-2) var(--s-1) var(--s-4); }
 
 .empty { display: grid; gap: var(--s-2); justify-items: start; padding: var(--s-3) var(--s-4); color: var(--silk); }

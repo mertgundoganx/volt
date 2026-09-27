@@ -59,7 +59,7 @@ const collectionItems = computed<MenuItem[]>(() => {
     { key: 'workspaces', label: 'Workspaces…', icon: 'collection', hint: 'Group the collections you work on' },
     { key: 'monitors', label: 'Monitors…', icon: 'info', hint: 'Watch a request on a schedule', disabled: !open },
     { key: 'mock', label: 'Mock server…', icon: 'braces', hint: 'Serve the saved examples locally', disabled: !open },
-    { key: 'import', label: 'Import…', icon: 'import', hint: 'From Postman, Insomnia or OpenAPI', divided: true },
+    { key: 'import', label: 'Import…', icon: 'import', hint: 'Postman, Insomnia, OpenAPI, or an environment', divided: true },
     { key: 'postman', label: 'Export for Postman', icon: 'file-down', disabled: !open },
     { key: 'docs', label: 'Write documentation…', icon: 'file', hint: 'One HTML file, no publishing', disabled: !open },
   ]

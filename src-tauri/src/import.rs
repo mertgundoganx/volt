@@ -106,6 +106,59 @@ pub struct Outcome {
 }
 
 /// Read an export and create a collection for it inside `into`.
+/// A Postman environment or globals export. It is not a collection: its
+/// variables belong to one, so they go into the open collection as an
+/// environment of their own. `None` when the file is something else.
+pub fn postman_environment(text: &str) -> Option<Environment> {
+    let value: Value = serde_json::from_str(text.trim_start_matches('\u{feff}').trim_start()).ok()?;
+    let scope = s(&value, "_postman_variable_scope");
+    // A collection has `info` and `item`; an environment has `values` and,
+    // from any Postman of the last years, a scope that says which it is.
+    if !matches!(scope, "environment" | "globals") || value.get("item").is_some() {
+        return None;
+    }
+    let values = value.get("values")?.as_array()?;
+    let name = match s(&value, "name").trim() {
+        "" if scope == "globals" => "Globals".to_string(),
+        "" => "Imported".to_string(),
+        name => name.to_string(),
+    };
+    let vars = values
+        .iter()
+        // A switched-off row is one the person was not using; volt has no
+        // switch for an environment variable, so it stays behind.
+        .filter(|row| row.get("enabled").and_then(Value::as_bool) != Some(false))
+        .filter_map(|row| {
+            let key = s(row, "key").trim();
+            if key.is_empty() {
+                return None;
+            }
+            Some(EnvVar {
+                name: key.to_string(),
+                value: text_of(row.get("value")),
+                secret: s(row, "type") == "secret" || looks_secret(key),
+            })
+        })
+        .collect();
+    Some(Environment { name, vars })
+}
+
+/// Import a Postman environment file into `root`. `None` when the file is
+/// not one, so the caller can try it as a collection instead.
+pub fn import_environment(root: &Path, source: &Path) -> Result<Option<String>> {
+    let text = fs::read_to_string(source).map_err(|e| Error::io(source.to_string_lossy(), e))?;
+    let Some(mut environment) = postman_environment(&text) else { return Ok(None) };
+    let taken: Vec<String> = collection::load(root)?.environments.into_iter().map(|env| env.name).collect();
+    let base = environment.name.clone();
+    let mut n = 2;
+    while taken.iter().any(|name| name.eq_ignore_ascii_case(&environment.name)) {
+        environment.name = format!("{base} {n}");
+        n += 1;
+    }
+    collection::write_environment(root, &environment, None)?;
+    Ok(Some(environment.name))
+}
+
 pub fn import_file(source: &Path, into: &Path) -> Result<Outcome> {
     let text = fs::read_to_string(source)
         .map_err(|e| Error::io(source.to_string_lossy(), e))?;
@@ -175,6 +228,10 @@ pub fn parse(text: &str) -> Result<Imported> {
                 "`{kind}` is not a request collection; export the collection itself from Insomnia"
             )));
         }
+    } else if value.get("_postman_variable_scope").is_some() {
+        return Err(Error::Invalid(
+            "this is a Postman environment, not a collection; open a collection and drop it there".into(),
+        ));
     } else {
         return Err(Error::Invalid(
             "this is not a Postman (v2.0/v2.1), Insomnia (v4/v5) or OpenAPI/Swagger file".into(),
@@ -202,6 +259,22 @@ fn arr<'a>(v: &'a Value, key: &str) -> &'a [Value] {
 }
 
 /// Exports put numbers and booleans where strings are expected.
+/// `{{$name}}`s in `text` that volt has no value for. Most of Postman's
+/// `$random…` names it does; the rest are named rather than lumped together.
+fn unknown_dynamics(text: &str) -> Vec<String> {
+    let known = crate::vars::dynamics();
+    let mut out: Vec<String> = Vec::new();
+    for piece in text.split("{{$").skip(1) {
+        let name: String = piece.chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
+        let full = format!("${name}");
+        let helper = piece[name.len()..].starts_with('(') || name == "body";
+        if !name.is_empty() && !helper && !known.contains_key(&full) && !out.contains(&full) {
+            out.push(full);
+        }
+    }
+    out
+}
+
 fn text_of(v: Option<&Value>) -> String {
     match v {
         None | Some(Value::Null) => String::new(),
@@ -455,8 +528,12 @@ fn postman_request(item: &Value, req: &Value, name: String, w: &mut Warnings) ->
         options: None,
         docs,
     };
-    if serde_json::to_string(&request).is_ok_and(|json| json.contains("{{$")) {
-        w.add("Postman dynamic variables such as {{$guid}} are not supported and will show as undefined", &request.name);
+    let unknown = unknown_dynamics(&serde_json::to_string(&request).unwrap_or_default());
+    if !unknown.is_empty() {
+        w.add(
+            format!("Postman dynamic variables volt does not make up will show as undefined ({})", unknown.join(", ")),
+            &request.name,
+        );
     }
     request
 }
@@ -615,16 +692,16 @@ fn postman_body(v: &Value, headers: &[KeyValue], subject: &str, w: &mut Warnings
         }
         "graphql" => {
             let graphql = &v["graphql"];
+            // volt has a GraphQL body of its own, with the editor and schema
+            // behind it, so the query stays a query.
             let variables = match graphql.get("variables") {
-                Some(Value::String(text)) if !text.trim().is_empty() => {
-                    serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.clone()))
+                Some(Value::String(text)) => text.trim().to_string(),
+                Some(object @ Value::Object(map)) if !map.is_empty() => {
+                    serde_json::to_string_pretty(object).unwrap_or_default()
                 }
-                Some(object @ Value::Object(_)) => object.clone(),
-                _ => Value::Object(Default::default()),
+                _ => String::new(),
             };
-            let payload = serde_json::json!({ "query": text_of(graphql.get("query")), "variables": variables });
-            w.add("GraphQL bodies were converted to a JSON body", subject);
-            Body::Json { content: serde_json::to_string_pretty(&payload).unwrap_or_default() }
+            Body::GraphQl { query: text_of(graphql.get("query")), variables }
         }
         _ => Body::None,
     }
@@ -977,9 +1054,23 @@ fn insomnia_body(v: &Value, headers: &[KeyValue], subject: &str, w: &mut Warning
         }
         Body::Form { fields: key_values(&text_fields, "name", insomnia_vars).into_iter().map(form_field).collect() }
     } else if mime.contains("graphql") {
-        // Insomnia already stores GraphQL as {"query", "variables"} JSON.
-        w.add("GraphQL bodies were converted to a JSON body", subject);
-        Body::Json { content: text }
+        // Insomnia stores GraphQL as {"query", "variables"} JSON.
+        match serde_json::from_str::<Value>(&text) {
+            Ok(parsed) if parsed.get("query").is_some() => Body::GraphQl {
+                query: text_of(parsed.get("query")),
+                variables: match parsed.get("variables") {
+                    Some(object @ Value::Object(map)) if !map.is_empty() => {
+                        serde_json::to_string_pretty(object).unwrap_or_default()
+                    }
+                    Some(Value::String(text)) => text.trim().to_string(),
+                    _ => String::new(),
+                },
+            },
+            _ => {
+                w.add("A GraphQL body that was not a query was kept as JSON", subject);
+                Body::Json { content: text }
+            }
+        }
     } else if text.is_empty() {
         Body::None
     } else {
@@ -1506,7 +1597,7 @@ mod tests {
               "request": {
                 "method": "GET",
                 "url": { "raw": "{{baseUrl}}/users/:id", "variable": [{ "key": "id", "value": "42" }] },
-                "header": [{ "key": "X-Trace", "value": "{{$guid}}" }]
+                "header": [{ "key": "X-Trace", "value": "{{$guid}}-{{$randomBankAccount}}" }]
               }
             },
             {
@@ -1577,6 +1668,45 @@ mod tests {
     }
 
     #[test]
+    fn a_postman_environment_becomes_an_environment_of_the_open_collection() {
+        let text = r#"{
+            "id": "5d1c", "name": "Staging",
+            "values": [
+                { "key": "baseUrl", "value": "https://staging.example.com", "type": "default", "enabled": true },
+                { "key": "apiKey", "value": "sk-live-1", "type": "secret", "enabled": true },
+                { "key": "clientSecret", "value": "shh", "type": "default", "enabled": true },
+                { "key": "old", "value": "x", "enabled": false },
+                { "key": "", "value": "nameless" }
+            ],
+            "_postman_variable_scope": "environment"
+        }"#;
+        let env = postman_environment(text).expect("an environment");
+        assert_eq!(env.name, "Staging");
+        assert_eq!(env.vars.len(), 3, "the switched-off and nameless rows stay behind: {:?}", env.vars);
+        assert!(!var(&env, "baseUrl").secret);
+        assert!(var(&env, "apiKey").secret, "Postman's secret type is a secret here");
+        assert!(var(&env, "clientSecret").secret, "and so is anything named like one");
+
+        assert!(postman_environment(POSTMAN_V21).is_none(), "a collection is not an environment");
+        assert!(parse(text).unwrap_err().to_string().contains("Postman environment"), "and the collection import says what it is");
+
+        // Into a collection, beside what is there, without replacing it.
+        let root = std::env::temp_dir().join(format!("volt-env-import-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join(ENV_DIR)).unwrap();
+        fs::write(root.join(COLLECTION_FILE), "name: T\nversion: 1\n").unwrap();
+        fs::write(root.join(ENV_DIR).join("staging.yaml"), "name: Staging\nvars: []\n").unwrap();
+        let source = root.join("staging.postman_environment.json");
+        fs::write(&source, text).unwrap();
+        let added = import_environment(&root, &source).unwrap();
+        let loaded = collection::load(&root).unwrap();
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(added.as_deref(), Some("Staging 2"), "a name that is taken gets a number");
+        let env = loaded.environments.iter().find(|env| env.name == "Staging 2").expect("written");
+        assert_eq!(var(env, "apiKey").value, "sk-live-1", "the secret is kept, in the .env file");
+    }
+
+    #[test]
     fn postman_structure_order_and_requests() {
         let imported = parse(POSTMAN_V21).unwrap();
         assert_eq!(imported.format, "Postman v2.1");
@@ -1601,10 +1731,12 @@ mod tests {
         let file = by_name("file");
         assert!(file.file && !file.value.is_empty(), "{file:?}");
 
-        let Body::Json { content } = &request(&imported.nodes, "Search").body else { panic!("expected json") };
-        let graphql: Value = serde_json::from_str(content).unwrap();
-        assert_eq!(graphql["query"], "{ products { id } }");
-        assert_eq!(graphql["variables"]["first"], 3);
+        let Body::GraphQl { query, variables } = &request(&imported.nodes, "Search").body else {
+            panic!("a GraphQL body stays GraphQL")
+        };
+        assert_eq!(query, "{ products { id } }");
+        let variables: Value = serde_json::from_str(variables).unwrap();
+        assert_eq!(variables["first"], 3);
     }
 
     #[test]
@@ -1725,8 +1857,13 @@ mod tests {
         );
         assert!(w.mentions("A file field keeps the path"));
         assert!(w.mentions("`oauth2` auth is not supported"));
-        assert!(w.mentions("GraphQL"));
+        assert!(!w.mentions("GraphQL"), "a GraphQL body comes across as one, with nothing to warn about");
         assert!(w.mentions("dynamic variables"));
+        assert!(
+            w.render().iter().any(|line| line.contains("($randomBankAccount)")),
+            "only the one volt cannot make up is named, not $guid: {:?}",
+            w.render()
+        );
         assert!(
             w.render().iter().any(|line| line.contains("plain-text credential") && line.ends_with(": Log in")),
             "the JSON password is flagged against the right request: {:?}",

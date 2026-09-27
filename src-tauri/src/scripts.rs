@@ -257,6 +257,8 @@ fn check_in(statement: &str, bodies: &[String]) -> Option<Check> {
     } else if let Some(value) = call_after(chain, &["include(", "includes(", "contain(", "contains("])
     {
         (Op::Contains, value)
+    } else if let Some(value) = call_after(chain, &["match("]) {
+        (Op::Matches, regex_literal(&value))
     } else if let Some(value) = call_after(chain, &["below(", "lessThan(", "lt("]) {
         (Op::Under, value)
     } else if let Some(value) = call_after(chain, &["above(", "greaterThan(", "gt("]) {
@@ -272,10 +274,19 @@ fn check_in(statement: &str, bodies: &[String]) -> Option<Check> {
     // `not contains`, `not below` and `not above` have no operator of their
     // own, and a check that quietly means the opposite is worse than one that
     // was left for the report.
-    if negated && matches!(op, Op::Contains | Op::Under | Op::Over) {
+    if negated && matches!(op, Op::Contains | Op::Matches | Op::Under | Op::Over) {
         return None;
     }
     Some(Check { from, op, value, enabled: true })
+}
+
+/// `/^ab+c$/i` → `(?i)^ab+c$`, the same pattern in the regex crate's terms.
+fn regex_literal(text: &str) -> String {
+    let Some(body) = text.strip_prefix('/') else { return text.to_string() };
+    let Some(end) = body.rfind('/') else { return text.to_string() };
+    let flags: String = body[end + 1..].chars().filter(|c| matches!(c, 'i' | 'm' | 's')).collect();
+    let pattern = &body[..end];
+    if flags.is_empty() { pattern.to_string() } else { format!("(?{flags}){pattern}") }
 }
 
 /// The argument of the first of `names` the chain calls.
@@ -439,6 +450,7 @@ mod tests {
             pm.expect(body["meta"]["page"]).to.be.above(0);
             pm.expect(body.token).to.exist;
             pm.response.to.have.header("Content-Type");
+            pm.expect(body.email).to.match(/@example.com$/i);
             "#,
         );
 
@@ -454,6 +466,7 @@ mod tests {
                 ("$.meta.page".into(), Op::Over, "0".into()),
                 ("$.token".into(), Op::Exists, String::new()),
                 ("header:Content-Type".into(), Op::Exists, String::new()),
+                ("$.email".into(), Op::Matches, r"(?i)@example.com$".into()),
             ]
         );
     }

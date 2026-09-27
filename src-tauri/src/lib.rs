@@ -151,6 +151,13 @@ fn import_collection(source: String, into: String) -> Result<import::Outcome> {
     import::import_file(&PathBuf::from(source), &PathBuf::from(into))
 }
 
+/// A Postman environment file, added to the open collection. `None` when the
+/// file is not one.
+#[tauri::command]
+fn import_environment(root: String, source: String) -> Result<Option<String>> {
+    import::import_environment(&PathBuf::from(root), &PathBuf::from(source))
+}
+
 #[tauri::command]
 fn get_request(root: String, id: String) -> Result<Request> {
     collection::read_request(&PathBuf::from(root), &id)
@@ -296,7 +303,9 @@ async fn send_request(
     app: tauri::AppHandle,
     cookies: tauri::State<'_, Cookies>,
     cancels: tauri::State<'_, Cancels>,
-    token: String,
+    // What Cancel names this send by. A caller that cannot cancel (a monitor)
+    // may leave it out.
+    token: Option<String>,
     root: String,
     request: Request,
     env_vars: Vec<EnvVar>,
@@ -311,6 +320,7 @@ async fn send_request(
     let context: HashMap<String, String> = collection::scope_context(&scopes, &env_vars);
     let options = options.unwrap_or_default();
 
+    let token = token.unwrap_or_else(uuid_ish);
     let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
     cancels.0.lock().expect("cancels").insert(token.clone(), cancel_tx);
     let result = http::execute_or_cancel(
@@ -773,9 +783,14 @@ async fn run_collection(
     env_vars: Vec<EnvVar>,
     options: Option<http::ExecOptions>,
     stop_on_failure: bool,
+    data: Option<String>,
 ) -> Result<runner::Run> {
     let root_path = PathBuf::from(&root);
     let options = options.unwrap_or_default();
+    let rows = match data.as_deref().map(str::trim).filter(|path| !path.is_empty()) {
+        Some(path) => runner::read_data(&root_path.join(path))?,
+        None => Vec::new(),
+    };
     runner::run(
         &runner::Context {
             root: &root_path,
@@ -784,6 +799,7 @@ async fn run_collection(
             cookies: Some(cookies.jar(&root)),
             stop_on_failure,
             keep_examples: false,
+            data: &rows,
         },
         target.as_deref(),
     )
@@ -950,6 +966,7 @@ pub fn run() {
             startup_collection,
             last_crash,
             import_collection,
+            import_environment,
             get_request,
             save_request,
             create_folder,

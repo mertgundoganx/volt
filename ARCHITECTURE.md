@@ -843,6 +843,22 @@ labels on everything, decorative numbering.
   right edge.
 - Tree rows also carry the class `request`; select the request pane as
   `section.request`.
+- A key the window binds (`mod+enter` is Send) must not also be handled by
+  the field it is pressed in. The URL field emitted `enter` on Ctrl+Enter
+  too, so Send ran twice, and the second press of Send is Cancel: the request
+  stopped the moment it went out. A field's own Enter ignores modifiers.
+- Rust emits a stream's `open`, and whatever the server says at once, before
+  `open_stream` has returned the id the UI filters by — a greeting sent on
+  connect was dropped. Events for an id not yet known wait in the store and
+  are taken when the id arrives (`adoptStream`).
+- Every caller of a command has to change with its signature. `send_request`
+  gained a cancel `token` in 0.3.0 and the monitors' call did not, so every
+  monitor run failed on the arguments; the token is optional now, and the
+  e2e suite drives monitors.
+- A URL field that writes its text into params and reads it back must not
+  normalise what is being typed: `?a` written back as `?a=` put the caret
+  after an `=` nobody typed, and the next `=` made `a==1`. The typed text is
+  shown as typed while it still parses to the same params.
 
 **Checking a UI change.** Look at it, in both themes, at the 900×600 minimum
 window Tauri allows, including empty, loading, error and disabled states.

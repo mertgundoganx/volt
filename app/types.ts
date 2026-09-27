@@ -363,6 +363,8 @@ export interface Generated {
   syntax: string
   hidden: string[]
   undefined: string[]
+  /** What the snippet leaves out that the request does. */
+  notes: string[]
 }
 
 /** Mirrors export::Exported in src-tauri/src/export.rs. */
@@ -403,7 +405,7 @@ export interface SyncStatus {
 /** Mirrors Check in src-tauri/src/model.rs. */
 export interface Check {
   from: string
-  op: 'is' | 'isnot' | 'contains' | 'exists' | 'missing' | 'under' | 'over'
+  op: 'is' | 'isnot' | 'contains' | 'matches' | 'exists' | 'missing' | 'under' | 'over'
   value?: string
   enabled: boolean
 }
@@ -429,6 +431,10 @@ export interface RunStep {
   checks: CheckOutcome[]
   captured: string[]
   ok: boolean
+  /** Why it was not sent, for a socket, stream or gRPC request. */
+  skipped?: string
+  /** The data file row this pass used, from 1; absent without a data file. */
+  iteration?: number
 }
 
 export interface Run {

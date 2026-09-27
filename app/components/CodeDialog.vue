@@ -66,6 +66,10 @@ async function copy() {
       <UiIcon name="warning" :size="13" />
       <span>No value anywhere for {{ generated.undefined.join(', ') }} — the snippet keeps the placeholder.</span>
     </p>
+    <p v-for="note in generated?.notes ?? []" :key="note" class="hint warn">
+      <UiIcon name="warning" :size="13" />
+      <span>{{ note }}</span>
+    </p>
 
     <template #footer>
       <span class="silk">Resolved the way Send resolves it</span>

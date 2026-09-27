@@ -114,7 +114,10 @@ function accept(name: string) {
 
 function onKeydown(event: KeyboardEvent) {
   if (!open.value) {
-    if (event.key === 'Enter') emit('enter')
+    // Ctrl+Enter is the window's Send shortcut. Emitting here as well sent
+    // twice, and the second press of Send is Cancel: the request stopped
+    // the moment it went out.
+    if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) emit('enter')
     return
   }
   const count = suggestions.value.length
