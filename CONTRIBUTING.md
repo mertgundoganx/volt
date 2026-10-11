@@ -75,6 +75,12 @@ pnpm typecheck    # vue-tsc over the whole app
   `prost-types`. They were pinned apart for a while because a mismatched pair
   pulled in two of it; `cargo tree -d` is how you check after bumping any of
   them.
+- `aes` is held at 0.9.2 in `Cargo.lock`. It comes in through `p12-keystore`
+  (PKCS#12 client certificates), and 0.9.3 asks for Rust 1.89 while
+  `rust-version` here promises 1.88 — the "Minimum Rust version" job in CI
+  builds with exactly that and failed on it. A `cargo update` will move it
+  again; put it back with `cargo update aes --precise 0.9.2`, or raise
+  `rust-version` and the toolchain in `ci.yml` together.
 - RustCrypto is on the `digest` 0.11 line (`sha2` 0.11, `hmac` 0.13, `md-5` and
   `md4` 0.11). `Mac::new_from_slice` moved behind the `KeyInit` trait there, so
   `aws.rs` and `ntlm.rs` import it explicitly. The AWS SigV4 published vector
