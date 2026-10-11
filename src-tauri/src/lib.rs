@@ -1,4 +1,6 @@
 mod aws;
+mod bru;
+mod bruno;
 mod capture;
 mod checks;
 mod codegen;
@@ -13,14 +15,17 @@ mod examples;
 mod export;
 mod history;
 mod graphql;
+mod har;
 mod grpc;
 mod http;
 mod import;
 mod mock;
 mod model;
 mod oauth;
+mod oauth1;
 mod ntlm;
 mod openapi;
+mod openapi_export;
 mod reflection;
 pub mod runner;
 mod scripts;
@@ -144,8 +149,9 @@ fn install_crash_hook(dir: PathBuf) {
     }));
 }
 
-/// Convert a Postman or Insomnia export into a new collection directory
-/// created inside `into`.
+/// Convert another tool's collection into a new collection directory created
+/// inside `into`. `source` is an export file — Postman, Insomnia, OpenAPI or
+/// Swagger, HAR — or a Bruno collection: its folder, or the `bruno.json` in it.
 #[tauri::command]
 fn import_collection(source: String, into: String) -> Result<import::Outcome> {
     import::import_file(&PathBuf::from(source), &PathBuf::from(into))
@@ -457,6 +463,7 @@ async fn oauth_token(
     match grant.as_str() {
         "client_credentials" => oauth::client_credentials(&config).await,
         "authorization_code" => oauth::authorization_code(&config).await,
+        "password" => oauth::password(&config).await,
         "refresh_token" => match refresh_token {
             Some(token) if !token.trim().is_empty() => oauth::refresh(&config, token.trim()).await,
             _ => Err(error::Error::Invalid("there is no refresh token to use yet".into())),
@@ -464,6 +471,21 @@ async fn oauth_token(
         other => Err(error::Error::Invalid(format!("`{other}` is not a grant volt knows"))),
     }
 }
+/// Begin a device grant: the code to show the user and where to send them.
+/// The UI then calls `oauth_device_poll` every `interval` seconds — the
+/// waiting is its to do, since it is the one showing the code and the one that
+/// can be told to stop.
+#[tauri::command]
+async fn oauth_device_start(config: oauth::Config) -> Result<oauth::DeviceStart> {
+    oauth::device_start(&config).await
+}
+
+/// Ask once whether the user has approved the device grant yet.
+#[tauri::command]
+async fn oauth_device_poll(config: oauth::Config, device_code: String) -> Result<oauth::DevicePoll> {
+    oauth::device_poll(&config, &device_code).await
+}
+
 /// What a `.proto` file offers. The path is taken from the collection root
 /// when it is relative, like every other path a request names.
 #[tauri::command]
@@ -482,7 +504,7 @@ struct GrpcPlan {
     message: String,
     headers: Vec<(String, String)>,
     timeout_ms: u64,
-    verify_tls: bool,
+    transport: wire::Transport,
     root: PathBuf,
 }
 
@@ -516,7 +538,9 @@ fn grpc_plan(
         message: resolve(&message),
         headers: plan.headers,
         timeout_ms: options.timeout_ms,
-        verify_tls: options.verify_tls,
+        // The certificates and the proxy a Send would use, so a gRPC call to
+        // the same host is not the one thing that cannot get there.
+        transport: options.transport(&root_path),
         root: root_path,
     })
 }
@@ -529,7 +553,7 @@ impl GrpcPlan {
             message: &self.message,
             headers: &self.headers,
             timeout_ms: self.timeout_ms,
-            verify_tls: self.verify_tls,
+            transport: &self.transport,
         }
     }
 
@@ -594,7 +618,7 @@ async fn grpc_reflect(
 ) -> Result<Vec<grpc::Service>> {
     let plan = grpc_plan(root, &request, &env_vars, options, request_id.as_deref())?;
     let pool =
-        reflection::pool(&plan.url, &plan.headers, plan.timeout_ms, plan.verify_tls).await?;
+        reflection::pool(&plan.url, &plan.headers, plan.timeout_ms, &plan.transport).await?;
     Ok(grpc::services(&pool))
 }
 /// Open a connection that stays open. `kind` is `websocket` or `sse`.
@@ -623,6 +647,7 @@ async fn open_stream(
         &http::PlanContext { root: &root_path, vars: &context, scopes: &scopes, lenient_url: false },
     )?;
 
+    let transport = options.transport(&root_path);
     let id = format!("{}-{}", kind, uuid_ish());
     // Events reach the webview on one channel; the stream module knows nothing
     // about Tauri beyond this closure.
@@ -632,10 +657,54 @@ async fn open_stream(
     });
 
     match kind.as_str() {
-        "websocket" => stream::open_websocket(sink, &streams, id, plan, options.verify_tls).await,
-        "sse" => stream::open_sse(sink, &streams, id, plan, options.verify_tls).await,
+        "websocket" => stream::open_websocket(sink, &streams, id, plan, &transport).await,
+        "sse" => stream::open_sse(sink, &streams, id, plan, &transport).await,
         other => Err(error::Error::Invalid(format!("`{other}` is not a kind of stream volt opens"))),
     }
+}
+
+/// Open a GraphQL subscription for the request on screen. It is the same
+/// request a query would be — its address, its headers, its auth, its query
+/// and variables — carried over a WebSocket instead of a POST, and it reaches
+/// the UI on the channel every other open connection uses.
+#[tauri::command]
+async fn open_graphql_subscription(
+    app: tauri::AppHandle,
+    streams: tauri::State<'_, stream::Streams>,
+    root: String,
+    request: Request,
+    env_vars: Vec<EnvVar>,
+    options: Option<http::ExecOptions>,
+    request_id: Option<String>,
+) -> Result<stream::Open> {
+    if !matches!(request.body, model::Body::GraphQl { .. }) {
+        return Err(error::Error::Invalid("this request has no GraphQL query to subscribe with".into()));
+    }
+    let root_path = PathBuf::from(root);
+    let scopes = collection::scopes(&root_path, request_id.as_deref())?;
+    let context: HashMap<String, String> = collection::scope_context(&scopes, &env_vars);
+    let options = options.unwrap_or_default().for_request(&request);
+
+    let plan = http::plan(
+        &request,
+        &http::PlanContext { root: &root_path, vars: &context, scopes: &scopes, lenient_url: false },
+    )?;
+    // The body `plan` built for a POST is the payload a subscription sends:
+    // the query and its variables, resolved, in the shape the specification
+    // gives them. Using it means the two can never be resolved differently.
+    let payload = match &plan.body {
+        http::PlanBody::Text { content, .. } => serde_json::from_str(content)
+            .map_err(|e| error::Error::Invalid(format!("the query could not be prepared: {e}")))?,
+        _ => return Err(error::Error::Invalid("this request has no GraphQL query to subscribe with".into())),
+    };
+
+    let transport = options.transport(&root_path);
+    let id = format!("graphql-{}", uuid_ish());
+    let sink: stream::Sink = std::sync::Arc::new(move |event| {
+        use tauri::Emitter as _;
+        let _ = app.emit(stream::CHANNEL, event);
+    });
+    stream::open_graphql_subscription(sink, &streams, id, plan, payload, &transport, options.timeout_ms).await
 }
 
 #[tauri::command]
@@ -863,6 +932,15 @@ fn export_postman(root: String) -> Result<export::Exported> {
     export::postman(&root_path, &collection)
 }
 
+/// Write the collection out as an OpenAPI 3.0.3 document. `json` holds it as
+/// JSON and `yaml` holds the same document as YAML.
+#[tauri::command]
+fn export_openapi(root: String) -> Result<export::Exported> {
+    let root_path = PathBuf::from(root);
+    let collection = collection::load(&root_path)?;
+    openapi_export::openapi(&root_path, &collection)
+}
+
 /// A folder's own headers, auth and variables.
 #[tauri::command]
 fn get_folder(root: String, id: String) -> Result<model::FolderMeta> {
@@ -995,12 +1073,14 @@ pub fn run() {
             generate_code,
             code_languages,
             export_postman,
+            export_openapi,
             export_docs,
             grpc_services,
             send_grpc,
             open_grpc_stream,
             grpc_reflect,
             open_stream,
+            open_graphql_subscription,
             send_stream,
             close_stream,
             open_streams,
@@ -1008,6 +1088,8 @@ pub fn run() {
             graphql_check,
             graphql_complete,
             oauth_token,
+            oauth_device_start,
+            oauth_device_poll,
             run_collection,
             sync_status,
             sync_pull,

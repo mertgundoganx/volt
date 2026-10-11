@@ -12,7 +12,7 @@ const busy = ref(false)
 async function refresh() {
   status.value = await store.syncStatus()
   loading.value = false
-  if (status.value?.changed.length && !message.value) message.value = 'Update the API collection'
+  if (status.value?.changed.length && !message.value) message.value = t('Update the API collection')
 }
 onMounted(refresh)
 
@@ -35,64 +35,63 @@ async function commit(push: boolean) {
 </script>
 
 <template>
-  <UiDialog title="Sync" eyebrow="This collection" :width="680" @close="emit('close')">
+  <UiDialog :title="t('Sync')" :eyebrow="t('This collection')" :width="680" @close="emit('close')">
     <p class="note">
       <UiIcon name="info" :size="14" />
       <span>
-        A collection is files, so sharing it is your repository's job, not a cloud
-        service's. This is that repository, from here: pull what others changed,
-        commit what you did, push it.
+        {{ t("A collection is files, so sharing it is your repository's job, not a cloud service's.") }}
+        {{ t('This is that repository, from here: pull what others changed, commit what you did, push it.') }}
       </span>
     </p>
 
-    <p v-if="loading" class="empty">Looking…</p>
+    <p v-if="loading" class="empty">{{ t('Looking…') }}</p>
 
     <template v-else-if="!status?.repository">
-      <p class="empty">{{ status?.why ?? 'Nothing to sync with.' }}</p>
+      <p class="empty">{{ status?.why ?? t('Nothing to sync with.') }}</p>
       <p class="hint">
         <span>
-          Put the collection folder in a git repository and this page does the rest.
-          Everything else in volt works exactly the same without one.
+          {{ t('Put the collection folder in a git repository and this page does the rest.') }}
+          {{ t('Everything else in volt works exactly the same without one.') }}
         </span>
       </p>
     </template>
 
     <template v-else>
       <div class="state">
-        <span class="silk">Branch</span>
+        <span class="silk">{{ t('Branch') }}</span>
         <span class="mono">{{ status.branch }}</span>
-        <span class="silk">Remote</span>
-        <span class="mono remote">{{ status.remote ?? 'none' }}</span>
-        <span class="silk">Standing</span>
+        <span class="silk">{{ t('Remote') }}</span>
+        <span class="mono remote">{{ status.remote ?? t('none') }}</span>
+        <span class="silk">{{ t('Standing') }}</span>
         <span>
           <template v-if="status.ahead || status.behind">
-            <span v-if="status.ahead" class="chip">{{ status.ahead }} to push</span>
-            <span v-if="status.behind" class="chip">{{ status.behind }} to pull</span>
+            <span v-if="status.ahead" class="chip">{{ t('{n} to push', { n: status.ahead }) }}</span>
+            <span v-if="status.behind" class="chip">{{ t('{n} to pull', { n: status.behind }) }}</span>
           </template>
-          <span v-else class="silk">up to date</span>
+          <span v-else class="silk">{{ t('up to date') }}</span>
         </span>
       </div>
 
       <p v-if="!status.secretsIgnored" class="warn-note" role="alert">
         <UiIcon name="warning" :size="14" />
         <span>
-          <code>.gitignore</code> does not cover the <code>.env</code> files, so committing
-          would publish secret values. Save any environment once and volt writes the rule.
+          <code>.gitignore</code> {{ t('does not cover the') }} <code>.env</code> {{ t('files, so committing would publish secret values.') }}
+          {{ t('Save any environment once and volt writes the rule.') }}
         </span>
       </p>
 
-      <h3 class="silk">Changed here</h3>
+      <h3 class="silk">{{ t('Changed here') }}</h3>
       <ul v-if="status.changed.length" class="changed mono">
         <li v-for="path in status.changed" :key="path">{{ path }}</li>
       </ul>
-      <p v-else class="hint"><span>Nothing changed since the last commit.</span></p>
+      <p v-else class="hint"><span>{{ t('Nothing changed since the last commit.') }}</span></p>
 
       <div class="commit">
         <input
           v-model="message"
           class="field"
-          aria-label="Commit message"
-          placeholder="What changed"
+          :aria-label="t('Commit message')"
+          :placeholder="t('What changed')"
           :disabled="!status.changed.length"
           @keydown.enter.prevent="commit(true)"
         >
@@ -100,8 +99,8 @@ async function commit(push: boolean) {
 
       <p class="hint share">
         <span>
-          Sharing with someone new? <button type="button" class="link" @click="store.writeEnvTemplates()">Write the .env templates</button>
-          — the names they have to fill in, with none of your values.
+          {{ t('Sharing with someone new?') }} <button type="button" class="link" @click="store.writeEnvTemplates()">{{ t('Write the .env templates') }}</button>
+          {{ t('— the names they have to fill in, with none of your values.') }}
         </span>
       </p>
     </template>
@@ -114,10 +113,10 @@ async function commit(push: boolean) {
         :disabled="busy || !status.behind"
         @click="pull"
       >
-        Pull
+        {{ t('Pull') }}
       </button>
       <span class="spacer" />
-      <button type="button" class="btn btn-quiet" @click="emit('close')">Close</button>
+      <button type="button" class="btn btn-quiet" @click="emit('close')">{{ t('Close') }}</button>
       <button
         v-if="status?.repository"
         type="button"
@@ -125,7 +124,7 @@ async function commit(push: boolean) {
         :disabled="busy || !status.changed.length || !message.trim() || !status.secretsIgnored"
         @click="commit(false)"
       >
-        Commit
+        {{ t('Commit') }}
       </button>
       <button
         v-if="status?.repository"
@@ -134,7 +133,7 @@ async function commit(push: boolean) {
         :disabled="busy || !status.secretsIgnored || (!status.changed.length && !status.ahead)"
         @click="commit(true)"
       >
-        {{ status.changed.length ? 'Commit and push' : 'Push' }}
+        {{ status.changed.length ? t('Commit and push') : t('Push') }}
       </button>
     </template>
   </UiDialog>

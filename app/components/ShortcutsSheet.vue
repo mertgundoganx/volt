@@ -4,16 +4,16 @@ const shortcuts = useShortcutList()
 </script>
 
 <template>
-  <UiDialog title="Keyboard" eyebrow="Shortcuts" :width="460" @close="emit('close')">
+  <UiDialog :title="t('Keyboard')" :eyebrow="t('Shortcuts')" :width="460" @close="emit('close')">
     <dl class="keys">
       <template v-for="binding in shortcuts" :key="binding.keys">
-        <dt>{{ binding.label }}</dt>
+        <dt>{{ t(binding.label) }}</dt>
         <dd>
           <span v-for="part in shortcutLabel(binding.keys).split(' ')" :key="part" class="kbd">{{ part }}</span>
         </dd>
       </template>
     </dl>
-    <p class="note">Shortcuts are off while a dialog like this one is open.</p>
+    <p class="note">{{ t('Shortcuts are off while a dialog like this one is open.') }}</p>
   </UiDialog>
 </template>
 

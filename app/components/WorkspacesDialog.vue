@@ -22,13 +22,12 @@ function shortPath(path: string) {
 </script>
 
 <template>
-  <UiDialog title="Workspaces" eyebrow="On this machine" :width="680" @close="emit('close')">
+  <UiDialog :title="t('Workspaces')" :eyebrow="t('On this machine')" :width="680" @close="emit('close')">
     <p class="note">
       <UiIcon name="info" :size="14" />
       <span>
-        A workspace is a named set of collection folders — the three APIs at work,
-        or the side project. It is a list of paths in this app's settings, so
-        nothing is uploaded and nothing is shared; the collections stay where they are.
+        {{ t('A workspace is a named set of collection folders — the three APIs at work, or the side project.') }}
+        {{ t("It is a list of paths in this app's settings, so nothing is uploaded and nothing is shared; the collections stay where they are.") }}
       </span>
     </p>
 
@@ -36,12 +35,12 @@ function shortPath(path: string) {
       <input
         v-model="newName"
         class="field"
-        aria-label="New workspace name"
-        placeholder="Work, Side project, Client A…"
+        :aria-label="t('New workspace name')"
+        :placeholder="t('Work, Side project, Client A…')"
         @keydown.enter.prevent="create"
       >
       <button type="button" class="btn btn-primary btn-sm" :disabled="!newName.trim()" @click="create">
-        <UiIcon name="plus" :size="14" />New workspace
+        <UiIcon name="plus" :size="14" />{{ t('New workspace') }}
       </button>
     </div>
 
@@ -52,16 +51,16 @@ function shortPath(path: string) {
             <span class="led" :class="workspace.name === store.workspace ? 'ok' : 'off'" />
             {{ workspace.name }}
           </button>
-          <span class="silk">{{ workspace.collections.length }} {{ workspace.collections.length === 1 ? 'collection' : 'collections' }}</span>
+          <span class="silk">{{ workspace.collections.length === 1 ? t('1 collection') : t('{n} collections', { n: workspace.collections.length }) }}</span>
           <label v-if="store.isOpen" class="include">
             <input
               type="checkbox"
               :checked="has(workspace.name)"
               @change="store.setInWorkspace(workspace.name, ($event.target as HTMLInputElement).checked)"
             >
-            <span>this one</span>
+            <span>{{ t('this one') }}</span>
           </label>
-          <button type="button" class="icon-btn quiet sm" :aria-label="`Remove ${workspace.name}`" title="Remove" @click="store.removeWorkspace(workspace.name)">
+          <button type="button" class="icon-btn quiet sm" :aria-label="t('Remove {name}', { name: workspace.name })" :title="t('Remove')" @click="store.removeWorkspace(workspace.name)">
             <UiIcon name="x" :size="14" />
           </button>
         </div>
@@ -74,14 +73,14 @@ function shortPath(path: string) {
         </ul>
       </li>
     </ul>
-    <p v-else class="empty">No workspaces yet. The one you are in now can be the first.</p>
+    <p v-else class="empty">{{ t('No workspaces yet. The one you are in now can be the first.') }}</p>
 
     <template #footer>
       <button type="button" class="btn btn-quiet btn-sm" :disabled="!store.workspace" @click="store.useWorkspace(null)">
-        Leave the workspace
+        {{ t('Leave the workspace') }}
       </button>
       <span class="spacer" />
-      <button type="button" class="btn btn-primary" @click="emit('close')">Done</button>
+      <button type="button" class="btn btn-primary" @click="emit('close')">{{ t('Done') }}</button>
     </template>
   </UiDialog>
 </template>

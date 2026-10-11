@@ -98,10 +98,10 @@ const rootTypes = computed(() => {
   <div class="graphql">
     <div class="pane-half">
       <div class="head">
-        <span class="silk">Query</span>
-        <span v-if="schema" class="chip">{{ schema.types.length }} types</span>
+        <span class="silk">{{ t('Query') }}</span>
+        <span v-if="schema" class="chip">{{ t('{n} types', { n: schema.types.length }) }}</span>
         <!-- A short pane can hide the list below, so the count is in the header too. -->
-        <span v-if="problems.length" class="chip bad">{{ problems.length }} not in the schema</span>
+        <span v-if="problems.length" class="chip bad">{{ t('{n} not in the schema', { n: problems.length }) }}</span>
         <span class="spacer" />
         <button
           v-if="schema"
@@ -110,24 +110,24 @@ const rootTypes = computed(() => {
           :aria-expanded="browsing"
           @click="browsing = !browsing"
         >
-          <UiIcon name="braces" :size="14" />Schema
+          <UiIcon name="braces" :size="14" />{{ t('Schema') }}
         </button>
         <button type="button" class="btn btn-sm" :disabled="fetching" @click="introspect">
-          {{ fetching ? 'Asking' : schema ? 'Refresh schema' : 'Fetch schema' }}
+          {{ fetching ? t('Asking') : schema ? t('Refresh schema') : t('Fetch schema') }}
         </button>
       </div>
 
       <UiCodeEditor
         ref="editor"
         v-model="query"
-        label="GraphQL query"
+        :label="t('GraphQL query')"
         placeholder="query { me { id name } }"
         @caret="onCaret"
         @update:model-value="store.touch()"
       />
 
-      <div v-if="schema && completions.length" class="offer" aria-label="Fields that belong here">
-        <span class="silk">Next</span>
+      <div v-if="schema && completions.length" class="offer" :aria-label="t('Fields that belong here')">
+        <span class="silk">{{ t('Next') }}</span>
         <button
           v-for="field in completions.slice(0, 12)"
           :key="field.name"
@@ -141,23 +141,23 @@ const rootTypes = computed(() => {
         </button>
       </div>
 
-      <ul v-if="problems.length" class="problems" aria-label="Fields the schema does not have">
+      <ul v-if="problems.length" class="problems" :aria-label="t('Fields the schema does not have')">
         <li v-for="problem in problems" :key="problem.at">
           <span class="led bad" />
           <span><span class="mono where">{{ place(problem.at) }}</span> {{ problem.message }}</span>
         </li>
       </ul>
       <p v-else-if="schema" class="agrees">
-        <span class="led ok" /><span>Every field in this query is in the schema.</span>
+        <span class="led ok" /><span>{{ t('Every field in this query is in the schema.') }}</span>
       </p>
     </div>
 
     <div class="pane-half">
       <template v-if="browsing && schema">
         <div class="head">
-          <span class="silk">Schema</span>
+          <span class="silk">{{ t('Schema') }}</span>
           <span class="spacer" />
-          <button type="button" class="icon-btn quiet sm" aria-label="Back to the variables" @click="browsing = false">
+          <button type="button" class="icon-btn quiet sm" :aria-label="t('Back to the variables')" @click="browsing = false">
             <UiIcon name="x" :size="14" />
           </button>
         </div>
@@ -171,7 +171,7 @@ const rootTypes = computed(() => {
             >
               <UiIcon :name="openType === kind.name ? 'chevron-down' : 'chevron-right'" :size="14" />
               <span class="mono">{{ kind.name }}</span>
-              <span v-if="rootTypes.includes(kind.name)" class="chip">root</span>
+              <span v-if="rootTypes.includes(kind.name)" class="chip">{{ t('root') }}</span>
             </button>
             <ul v-if="openType === kind.name" class="fields">
               <li v-if="kind.description" class="says">{{ kind.description }}</li>
@@ -185,10 +185,10 @@ const rootTypes = computed(() => {
       </template>
 
       <template v-else>
-        <span class="silk">Variables</span>
+        <span class="silk">{{ t('Variables') }}</span>
         <UiCodeEditor
           v-model="variables"
-          label="GraphQL variables"
+          :label="t('GraphQL variables')"
           placeholder="{ }"
           @update:model-value="store.touch()"
         />

@@ -182,7 +182,7 @@ defineExpose({ focus: () => input.value?.focus() })
       v-if="open"
       class="complete"
       role="listbox"
-      aria-label="Variables"
+      :aria-label="t('Variables')"
       :style="{ top: `${box.top}px`, left: `${box.left}px`, width: `${box.width}px` }"
     >
       <li
@@ -249,13 +249,13 @@ defineExpose({ focus: () => input.value?.focus() })
 
 .is-field { background: var(--well); border-radius: var(--r-sm); }
 .is-field .real:hover { border-color: var(--line-strong); }
-.is-field .real:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-tint); }
+.is-field .real:focus { border-color: var(--focus); box-shadow: 0 0 0 2px var(--accent-tint); }
 
 .is-inline { --pad: var(--s-2); --h: 26px; border-radius: var(--r-sm); }
 .is-inline .real { border-color: transparent; }
 .is-inline:hover { background: var(--hover); }
 .is-inline:focus-within { background: var(--well); }
-.is-inline .real:focus { border-color: var(--accent); }
+.is-inline .real:focus { border-color: var(--focus); }
 
 .is-bare { --pad: var(--s-3); --h: 100%; height: 100%; }
 .is-bare .real { border: 0; border-radius: 0; }

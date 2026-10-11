@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { markRaw } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { parentOf, type DropPosition } from '~/composables/useTreeMenu'
+import { uiLanguage, systemLanguage, LANGUAGES, t, type Language } from '~/composables/useI18n'
 import { ask, open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { load as loadStore } from '@tauri-apps/plugin-store'
 import { check as checkUpdate, type Update } from '@tauri-apps/plugin-updater'
@@ -45,6 +46,8 @@ import {
   type GrpcReply,
   type Run,
   type OAuthConfig,
+  type OAuthDevice,
+  type OAuthDevicePoll,
   type OAuthToken,
   type CheckOutcome,
   type Deleted,
@@ -61,6 +64,8 @@ const HISTORY_LIMIT = 200
 const RECENT_KEY = 'recentCollections'
 const OPTIONS_KEY = 'execOptions'
 const THEME_KEY = 'theme'
+const LANGUAGE_KEY = 'language'
+const OAUTH_KEY = 'oauth'
 const WORKSPACES_KEY = 'workspaces'
 const WORKSPACE_KEY = 'workspace'
 const MONITORS_KEY = 'monitors'
@@ -84,8 +89,8 @@ export const SUPPLIED = [
   '$base64(', '$sha256(', '$md5(', '$hmacSha256(', '$hmacSha256Base64(', '$urlencode(', '$upper(', '$lower(',
 ]
 
-export type ThemePreference = 'system' | 'light' | 'dark' | 'linen' | 'mist'
-export const THEMES: ThemePreference[] = ['system', 'light', 'dark', 'linen', 'mist']
+export type ThemePreference = 'system' | 'light' | 'dark' | 'cobalt' | 'linen' | 'mist'
+export const THEMES: ThemePreference[] = ['system', 'light', 'dark', 'cobalt', 'linen', 'mist']
 
 /** What a pasted curl command became, shown under the request until it changes. */
 export interface CurlNotice {
@@ -117,7 +122,7 @@ export function applyTheme(theme: ThemePreference) {
 
 /** Say exactly what a delete will take with it, since it cannot be undone. */
 function describeDeletion(node: Node): string {
-  if (node.kind === 'request') return `Delete “${node.name}”? The file is removed from disk.`
+  if (node.kind === 'request') return t('Delete “{name}”? The file is removed from disk.', { name: node.name })
 
   let requests = 0
   let folders = 0
@@ -133,12 +138,12 @@ function describeDeletion(node: Node): string {
   }
   count(node.children)
 
-  if (requests === 0 && folders === 0) return `Delete the empty folder “${node.name}”?`
+  if (requests === 0 && folders === 0) return t('Delete the empty folder “{name}”?', { name: node.name })
   const parts = [
-    requests ? `${requests} request${requests === 1 ? '' : 's'}` : '',
-    folders ? `${folders} folder${folders === 1 ? '' : 's'}` : '',
+    requests ? (requests === 1 ? t('1 request') : t('{n} requests', { n: requests })) : '',
+    folders ? (folders === 1 ? t('1 folder') : t('{n} folders', { n: folders })) : '',
   ].filter(Boolean)
-  return `Delete “${node.name}” and the ${parts.join(' and ')} inside it? This removes them from disk.`
+  return t('Delete “{name}” and the {parts} inside it? This removes them from disk.', { name: node.name, parts: parts.join(t(' and ')) })
 }
 
 /** Turn whatever came back over the IPC boundary into something readable. */
@@ -345,6 +350,9 @@ export const useCollectionStore = defineStore('collection', {
     /** The request being copied to another collection. */
     copyToDialog: null as { id: string; name: string } | null,
     shortcutsSheet: false,
+    /** Counts up when the URL field should take the caret: a request was just made. */
+    focusUrl: 0,
+    focusUrlAnswered: 0,
     /** A variable name to add when the environment editor opens next. */
     openEnvironmentWith: null as string | null,
     /** One-time explanations that have been shown. */
@@ -388,6 +396,25 @@ export const useCollectionStore = defineStore('collection', {
       return state.stream && state.streamOwner === state.activeId ? state.stream : null
     },
 
+    /** A GraphQL request whose query is a subscription: sent, it is a connection. */
+    isSubscription(state): boolean {
+      const request = state.request
+      if (!request || (request.kind ?? 'http') !== 'http' || request.body.type !== 'graphql') return false
+      // An open one stays one: edited into a query, it would otherwise leave
+      // its socket open with no key on screen that closes it.
+      if (state.stream?.kind === 'graphql' && state.streamOwner === state.activeId) return true
+      // Only the words outside every selection set count: a *field* may be
+      // called subscription, and a subscription may select a field called query.
+      let depth = 0
+      let top = ''
+      for (const char of request.body.query.replace(/#[^\n]*/g, '').replace(/"(?:\\.|[^"\\])*"/g, '""')) {
+        if (char === '{') depth += 1
+        else if (char === '}') depth = Math.max(0, depth - 1)
+        else if (depth === 0) top += char
+      }
+      return /\bsubscription\b/.test(top) && !/\b(query|mutation)\b/.test(top)
+    },
+
     /** Whether the method the open request names is a streaming one. */
     grpcStreams(): boolean {
       const body = this.request?.body
@@ -408,6 +435,20 @@ export const useCollectionStore = defineStore('collection', {
       }
       walk(state.collection?.tree ?? [], 0)
       return out
+    },
+
+    /**
+     * The collections to list in the sidebar: the workspace's when one is
+     * chosen, otherwise the ones opened lately.
+     */
+    knownCollections(state): string[] {
+      const workspace = state.workspaces.find((w) => w.name === state.workspace)
+      return workspace ? workspace.collections : state.recent
+    },
+
+    /** The interface language, for whatever cannot import the composable. */
+    language(): Language {
+      return uiLanguage.value
     },
 
     environment(state): Environment | null {
@@ -456,7 +497,7 @@ export const useCollectionStore = defineStore('collection', {
     },
 
     requireRoot(): string {
-      if (!this.root) throw new Error('No collection is open. Use “Open…” or “New” first.')
+      if (!this.root) throw new Error(t('No collection is open. Use “Open…” or “New” first.'))
       return this.root
     },
 
@@ -471,6 +512,9 @@ export const useCollectionStore = defineStore('collection', {
         const theme = await store.get<ThemePreference>(THEME_KEY)
         this.theme = theme && THEMES.includes(theme) ? theme : 'system'
         applyTheme(this.theme)
+        // The interface language: what was chosen, or what the system speaks.
+        const chosen = await store.get<Language>(LANGUAGE_KEY)
+        uiLanguage.value = chosen && LANGUAGES.some((one) => one.value === chosen) ? chosen : systemLanguage()
 
         this.autoCheckUpdates = (await store.get<boolean>(AUTO_UPDATE_KEY)) ?? true
         this.tips = (await store.get<Record<string, boolean>>(TIPS_KEY)) ?? {}
@@ -505,6 +549,11 @@ export const useCollectionStore = defineStore('collection', {
 
     /** Throws on failure — callers decide whether that is worth reporting. */
     async load(path: string) {
+      // Leaving a collection: write its open tabs now. The usual save waits
+      // half a second after the last change, and a switch made sooner than
+      // that used to come back to an empty bench.
+      if (this.collection) await this.persistTabs().catch(() => {})
+
       // A socket belongs to the collection it was opened from, so it goes with
       // it. Left open it would keep pushing events at a pane showing something
       // else, and nothing would ever close it.
@@ -538,10 +587,13 @@ export const useCollectionStore = defineStore('collection', {
       const problems = this.collection.problems ?? []
       if (problems.length) {
         const many = problems.length > 1
-        this.error = `${many ? 'These files' : 'This file'} could not be read and ${many ? 'are' : 'is'} not in the tree: ${problems.join(', ')}`
+        const files = problems.join(', ')
+        this.error = many
+          ? t('These files could not be read and are not in the tree: {files}', { files })
+          : t('This file could not be read and is not in the tree: {files}', { files })
       }
 
-      this.recent = [path, ...this.recent.filter((p) => p !== path)].slice(0, 8)
+      this.recent = [path, ...this.recent.filter((p) => p !== path)].slice(0, 12)
       const store = await loadStore('volt.json', { autoSave: true })
       await store.set(RECENT_KEY, this.recent)
 
@@ -663,9 +715,9 @@ export const useCollectionStore = defineStore('collection', {
             if (open === id) this.dropTab(i)
           }
           await this.reload()
-          this.notify(`Moved to ${where}`, `${newId} there; the copy here is in the bin`)
+          this.notify(t('Moved to {where}', { where }), t('{id} there; the copy here is in the bin', { id: newId }))
         } else {
-          this.notify(`Copied to ${where}`, `as ${newId}`)
+          this.notify(t('Copied to {where}', { where }), t('as {id}', { id: newId }))
         }
         return true
       })
@@ -721,16 +773,16 @@ export const useCollectionStore = defineStore('collection', {
     async browseAndImport() {
       await this.attempt(async () => {
         const source = await openDialog({
-          title: 'Choose a Postman, Insomnia or OpenAPI file — or a Postman environment',
+          title: t('Choose an export: Postman, Insomnia, OpenAPI, HAR, a Bruno collection\'s bruno.json, or a Postman environment'),
           multiple: false,
           directory: false,
-          filters: [{ name: 'Postman, Insomnia, OpenAPI or environment', extensions: ['json', 'yaml', 'yml'] }],
+          filters: [{ name: t('Postman, Insomnia, Bruno, OpenAPI, HAR or environment'), extensions: ['json', 'yaml', 'yml', 'har'] }],
         })
         if (typeof source !== 'string') return
         if (await this.importEnvironment(source)) return
 
         const into = await openDialog({
-          title: 'Choose where to create the collection',
+          title: t('Choose where to create the collection'),
           multiple: false,
           directory: true,
         })
@@ -754,7 +806,7 @@ export const useCollectionStore = defineStore('collection', {
       if (!name) return false
       await this.reload()
       this.activeEnvironment = name
-      this.notify(`Environment ${name} imported`, 'Secret values went to the gitignored .env file.')
+      this.notify(t('Environment {name} imported', { name }), t('Secret values went to the gitignored .env file.'))
       return true
     },
 
@@ -831,12 +883,12 @@ export const useCollectionStore = defineStore('collection', {
       const tab = index === this.activeTab ? this.liveTab() : this.tabs[index]
       if (!tab) return
       if (tab.dirty) {
-        const name = tab.request?.name || 'this request'
-        const confirmed = await ask(`Close “${name}”? Its unsaved changes are lost.`, {
-          title: 'Close',
+        const name = tab.request?.name || t('this request')
+        const confirmed = await ask(t('Close “{name}”? Its unsaved changes are lost.', { name }), {
+          title: t('Close'),
           kind: 'warning',
-          okLabel: 'Close',
-          cancelLabel: 'Keep open',
+          okLabel: t('Close'),
+          cancelLabel: t('Keep open'),
         })
         if (!confirmed) return
       }
@@ -921,7 +973,7 @@ export const useCollectionStore = defineStore('collection', {
     async importCurl(command: string, target: CurlTarget): Promise<boolean> {
       const done = await this.attempt(async () => {
         const root = this.requireRoot()
-        if (target.mode === 'replace' && !this.request) throw new Error('Open a request to fill it from curl.')
+        if (target.mode === 'replace' && !this.request) throw new Error(t('Open a request to fill it from curl.'))
 
         const parsed = await invoke<CurlParsed>('parse_curl', { command, envVars: this.environment?.vars ?? [] })
         const incoming = normalizeRequest(parsed.request)
@@ -963,7 +1015,7 @@ export const useCollectionStore = defineStore('collection', {
       await this.attempt(async () => {
         const root = this.requireRoot()
         const request = source ?? this.request
-        if (!request) throw new Error('Open a request to copy it as curl.')
+        if (!request) throw new Error(t('Open a request to copy it as curl.'))
 
         const out = await invoke<CurlRendered>('export_curl', {
           root,
@@ -976,13 +1028,13 @@ export const useCollectionStore = defineStore('collection', {
         await navigator.clipboard.writeText(out.command)
 
         const detail = [
-          out.hidden.length ? `Secrets kept as ${out.hidden.map((n) => `{{${n}}}`).join(', ')}` : '',
-          out.undefined.length ? `No value for ${out.undefined.join(', ')}` : '',
+          out.hidden.length ? t('Secrets kept as {names}', { names: out.hidden.map((n) => `{{${n}}}`).join(', ') }) : '',
+          out.undefined.length ? t('No value for {names}', { names: out.undefined.join(', ') }) : '',
         ]
           .filter(Boolean)
           .join(' · ')
         this.notify(
-          includeSecrets ? 'Copied as cURL, with secret values' : 'Copied as cURL',
+          includeSecrets ? t('Copied as cURL, with secret values') : t('Copied as cURL'),
           detail || undefined,
           out.undefined.length ? 'warn' : 'ok',
         )
@@ -1006,7 +1058,7 @@ export const useCollectionStore = defineStore('collection', {
     async save() {
       await this.attempt(async () => {
         const root = this.requireRoot()
-        if (!this.activeId || !this.request) throw new Error('Nothing to save.')
+        if (!this.activeId || !this.request) throw new Error(t('Nothing to save.'))
         await invoke('save_request', { root, id: this.activeId, request: this.request })
         this.dirty = false
         await this.reload()
@@ -1038,6 +1090,8 @@ export const useCollectionStore = defineStore('collection', {
         await invoke('save_request', { root, id, request: emptyRequest() })
         await this.reload()
         await this.select(id)
+        // A new request is asked for in order to type its address.
+        this.focusUrl += 1
       })
     },
 
@@ -1051,14 +1105,26 @@ export const useCollectionStore = defineStore('collection', {
         let opened: string | null = null
         let report: ImportOutcome['report'] | null = null
         for (const path of paths) {
-          if (/\.(json|ya?ml)$/i.test(path)) {
-            if (await this.importEnvironment(path)) continue
+          const convert = async () => {
             const into = await invoke<string>('imports_dir')
             const outcome = await invoke<ImportOutcome>('import_collection', { source: path, into })
             opened = outcome.report.path
             report = outcome.report
+          }
+          if (/\.(json|ya?ml|har)$/i.test(path)) {
+            if (await this.importEnvironment(path)) continue
+            await convert()
           } else {
-            opened = path
+            // A folder: volt's own opens as it is; another client's is converted.
+            let refused: unknown = null
+            await invoke<Collection>('open_collection', { path }).catch((error) => (refused = error ?? true))
+            if (refused === null) opened = path
+            else {
+              // Not Bruno's either: the reason it is not volt's is the useful one.
+              await convert().catch(() => {
+                throw refused
+              })
+            }
           }
         }
         if (opened) await this.load(opened)
@@ -1075,13 +1141,18 @@ export const useCollectionStore = defineStore('collection', {
       if (!request) return
       const captures = request.captures ?? []
       if (captures.some((capture) => capture.from === from)) {
-        this.notify('Already captured', `${from} is on the Captures tab`)
+        this.notify(t('Already captured'), t('{from} is on the Captures tab', { from }))
         return
       }
       const secret = /token|secret|password|passwd|key|auth|session|cookie/i.test(name)
       request.captures = [...captures, { name, from, enabled: true, secret }]
       this.touch()
-      this.notify(`Capture added: ${name}`, `${from} — send again to fill it${secret ? ', kept as a secret' : ''}`)
+      this.notify(
+        t('Capture added: {name}', { name }),
+        secret
+          ? t('{from} — send again to fill it, kept as a secret', { from })
+          : t('{from} — send again to fill it', { from }),
+      )
     },
 
     /**
@@ -1107,7 +1178,7 @@ export const useCollectionStore = defineStore('collection', {
     async createFolder(parent: string | null, name: string) {
       await this.attempt(async () => {
         const root = this.requireRoot()
-        if (!name.trim()) throw new Error('Folder name cannot be empty.')
+        if (!name.trim()) throw new Error(t('Folder name cannot be empty.'))
         await invoke<string>('create_folder', { root, parent, name: name.trim() })
         await this.reload()
       })
@@ -1121,7 +1192,7 @@ export const useCollectionStore = defineStore('collection', {
       await this.attempt(async () => {
         const root = this.requireRoot()
         const trimmed = name.trim()
-        if (!trimmed) throw new Error('Name cannot be empty.')
+        if (!trimmed) throw new Error(t('Name cannot be empty.'))
 
         await invoke('rename_node', { root, id, name: trimmed })
         // Every tab holding this file, not only the one in front: a background
@@ -1221,7 +1292,7 @@ export const useCollectionStore = defineStore('collection', {
           .filter((id) => id !== movedId)
 
         const at = ordered.indexOf(targetId)
-        if (at === -1) throw new Error('That row is no longer where it was; try again.')
+        if (at === -1) throw new Error(t('That row is no longer where it was; try again.'))
         ordered.splice(position === 'before' ? at : at + 1, 0, movedId)
 
         await invoke('reorder', { root, parent, ordered })
@@ -1234,13 +1305,13 @@ export const useCollectionStore = defineStore('collection', {
       await this.attempt(async () => {
         const root = this.requireRoot()
         const node = this.findNode(id)
-        if (!node) throw new Error('That item is no longer in the collection.')
+        if (!node) throw new Error(t('That item is no longer in the collection.'))
 
         const confirmed = await ask(describeDeletion(node), {
-          title: 'Delete',
+          title: t('Delete'),
           kind: 'warning',
-          okLabel: 'Delete',
-          cancelLabel: 'Cancel',
+          okLabel: t('Delete'),
+          cancelLabel: t('Cancel'),
         })
         if (!confirmed) return
 
@@ -1271,9 +1342,11 @@ export const useCollectionStore = defineStore('collection', {
         // Nothing was destroyed: it is in the collection's bin. Say so, and
         // offer the way back while the thought is still fresh.
         const also = orphaned.length
-          ? `It is in the bin · ${orphaned.length} monitor${orphaned.length > 1 ? 's' : ''} stopped`
-          : 'It is in the bin'
-        this.notify(`Deleted ${deleted.name}`, also, 'warn', true)
+          ? orphaned.length > 1
+            ? t('It is in the bin · {n} monitors stopped', { n: orphaned.length })
+            : t('It is in the bin · 1 monitor stopped')
+          : t('It is in the bin')
+        this.notify(t('Deleted {name}', { name: deleted.name }), also, 'warn', true)
         this.lastDeleted = deleted
       })
     },
@@ -1287,7 +1360,7 @@ export const useCollectionStore = defineStore('collection', {
         await invoke('restore_node', { root, deleted })
         this.lastDeleted = null
         await this.reload()
-        this.notify(`${deleted.name} is back`)
+        this.notify(t('{name} is back', { name: deleted.name }))
       })
     },
 
@@ -1310,11 +1383,11 @@ export const useCollectionStore = defineStore('collection', {
     async emptyTrash(): Promise<boolean> {
       const done = await this.attempt(async () => {
         const root = this.requireRoot()
-        const confirmed = await ask('Empty the bin? What is in it is gone for good.', {
-          title: 'Empty the bin',
+        const confirmed = await ask(t('Empty the bin? What is in it is gone for good.'), {
+          title: t('Empty the bin'),
           kind: 'warning',
-          okLabel: 'Empty it',
-          cancelLabel: 'Cancel',
+          okLabel: t('Empty it'),
+          cancelLabel: t('Cancel'),
         })
         if (!confirmed) return false
         await invoke('empty_trash', { root })
@@ -1420,7 +1493,7 @@ export const useCollectionStore = defineStore('collection', {
       await this.attempt(async () => {
         const root = this.requireRoot()
         await invoke('clear_cookies', { root })
-        this.notify('Cookies cleared', 'The next request starts with an empty jar.')
+        this.notify(t('Cookies cleared'), t('The next request starts with an empty jar.'))
       })
     },
 
@@ -1430,6 +1503,14 @@ export const useCollectionStore = defineStore('collection', {
         applyTheme(theme)
         const store = await loadStore('volt.json', { autoSave: true })
         await store.set(THEME_KEY, theme)
+      })
+    },
+
+    async saveLanguage(next: Language) {
+      await this.attempt(async () => {
+        uiLanguage.value = next
+        const store = await loadStore('volt.json', { autoSave: true })
+        await store.set(LANGUAGE_KEY, next)
       })
     },
 
@@ -1458,13 +1539,13 @@ export const useCollectionStore = defineStore('collection', {
         // private member" — so Install and restart did nothing until this.
         this.update = found ? markRaw(found) : null
         if (found) {
-          this.notify(`volt ${found.version} is available`, 'Install it from Settings')
+          this.notify(t('volt {version} is available', { version: found.version }), t('Install it from Settings'))
           return true
         }
-        if (loud) this.notify('volt is up to date', `You are on ${this.version}`)
+        if (loud) this.notify(t('volt is up to date'), t('You are on {version}', { version: this.version }))
         return false
       } catch (error) {
-        if (loud) this.error = `Could not check for updates: ${String(error)}`
+        if (loud) this.error = t('Could not check for updates: {error}', { error: String(error) })
         return false
       }
     },
@@ -1511,8 +1592,8 @@ export const useCollectionStore = defineStore('collection', {
       const gone = await this.attempt(async () => {
         const root = this.requireRoot()
         const confirmed = await ask(
-          `Delete “${name}”? Its environment file goes, and with it any secret values saved for it.`,
-          { title: 'Delete environment', kind: 'warning', okLabel: 'Delete', cancelLabel: 'Cancel' },
+          t('Delete “{name}”? Its environment file goes, and with it any secret values saved for it.', { name }),
+          { title: t('Delete environment'), kind: 'warning', okLabel: t('Delete'), cancelLabel: t('Cancel') },
         )
         if (!confirmed) return false
 
@@ -1546,8 +1627,10 @@ export const useCollectionStore = defineStore('collection', {
       if (saved) {
         this.activeEnvironment = name
         this.notify(
-          `Captured ${captured.length === 1 ? captured[0]!.name : `${captured.length} values`}`,
-          `Saved in ${name}`,
+          captured.length === 1
+            ? t('Captured {name}', { name: captured[0]!.name })
+            : t('Captured {n} values', { n: captured.length }),
+          t('Saved in {name}', { name }),
         )
       }
     },
@@ -1581,7 +1664,7 @@ export const useCollectionStore = defineStore('collection', {
     async saveExample(name: string): Promise<boolean> {
       const done = await this.attempt(async () => {
         const root = this.requireRoot()
-        if (!this.activeId || !this.response) throw new Error('Send a request first, then keep its response.')
+        if (!this.activeId || !this.response) throw new Error(t('Send a request first, then keep its response.'))
         await invoke<Example[]>('save_example', {
           root,
           id: this.activeId,
@@ -1589,7 +1672,7 @@ export const useCollectionStore = defineStore('collection', {
           response: this.response,
           envVars: this.environment?.vars ?? [],
         })
-        this.notify('Example saved', `Kept as “${name}” beside the request`)
+        this.notify(t('Example saved'), t('Kept as “{name}” beside the request', { name }))
         return true
       })
       return done === true
@@ -1632,7 +1715,7 @@ export const useCollectionStore = defineStore('collection', {
     async introspect(): Promise<GraphQlSchema | null> {
       const schema = await this.attempt(async () => {
         const root = this.requireRoot()
-        if (!this.request) throw new Error('Open a request first.')
+        if (!this.request) throw new Error(t('Open a request first.'))
         return await invoke<GraphQlSchema>('graphql_schema', {
           root,
           request: this.request,
@@ -1672,7 +1755,7 @@ export const useCollectionStore = defineStore('collection', {
     async generateCode(language: string, includeSecrets: boolean): Promise<Generated | null> {
       const out = await this.attempt(async () => {
         const root = this.requireRoot()
-        if (!this.request) throw new Error('Open a request first.')
+        if (!this.request) throw new Error(t('Open a request first.'))
         return await invoke<Generated>('generate_code', {
           root,
           request: this.request,
@@ -1687,17 +1770,50 @@ export const useCollectionStore = defineStore('collection', {
     },
 
     /** Write the collection out as a Postman v2.1 file the user picks. */
+    /** Take a collection out of the sidebar's list. The folder is not touched. */
+    async forgetCollection(path: string) {
+      await this.attempt(async () => {
+        // The list on screen is the workspace's when one is chosen, and the
+        // key takes the collection off that list — not off every other one.
+        if (this.workspaces.some((w) => w.name === this.workspace)) {
+          this.workspaces = this.workspaces.map((w) =>
+            w.name === this.workspace ? { ...w, collections: w.collections.filter((p) => p !== path) } : w,
+          )
+          await this.saveWorkspaces()
+          return
+        }
+        const store = await loadStore('volt.json', { autoSave: true })
+        this.recent = this.recent.filter((p) => p !== path)
+        await store.set(RECENT_KEY, this.recent)
+      })
+    },
+
+    async exportOpenApi() {
+      await this.attempt(async () => {
+        const root = this.requireRoot()
+        const out = await invoke<Exported>('export_openapi', { root })
+        const path = await saveDialog({
+          defaultPath: `${this.collection?.meta.name ?? 'collection'}.openapi.yaml`,
+          title: t('Export as an OpenAPI document'),
+        })
+        if (!path) return
+        await invoke('save_body', { path, body: /\.json$/i.test(path) ? out.json : (out.yaml ?? out.json), base64Encoded: false })
+        this.notify(t('Exported as OpenAPI'), out.notes[0] ?? path)
+        if (out.notes.length) this.exportNotes = out.notes
+      })
+    },
+
     async exportPostman() {
       await this.attempt(async () => {
         const root = this.requireRoot()
         const out = await invoke<Exported>('export_postman', { root })
         const path = await saveDialog({
           defaultPath: `${this.collection?.meta.name ?? 'collection'}.postman_collection.json`,
-          title: 'Export as Postman collection',
+          title: t('Export as Postman collection'),
         })
         if (!path) return
         await invoke('save_body', { path, body: out.json, base64Encoded: false })
-        this.notify('Exported for Postman', out.notes[0] ?? path)
+        this.notify(t('Exported for Postman'), out.notes[0] ?? path)
         if (out.notes.length) this.exportNotes = out.notes
       })
     },
@@ -1745,9 +1861,9 @@ export const useCollectionStore = defineStore('collection', {
     async addWorkspace(name: string) {
       await this.attempt(async () => {
         const trimmed = name.trim()
-        if (!trimmed) throw new Error('A workspace needs a name.')
+        if (!trimmed) throw new Error(t('A workspace needs a name.'))
         if (this.workspaces.some((w) => w.name.toLowerCase() === trimmed.toLowerCase())) {
-          throw new Error(`There is already a workspace called “${trimmed}”.`)
+          throw new Error(t('There is already a workspace called “{name}”.', { name: trimmed }))
         }
         // Whatever is open is what you are working on, so it starts there.
         this.workspaces = [...this.workspaces, { name: trimmed, collections: this.root ? [this.root] : [] }]
@@ -1759,8 +1875,8 @@ export const useCollectionStore = defineStore('collection', {
     async removeWorkspace(name: string) {
       await this.attempt(async () => {
         const confirmed = await ask(
-          `Remove the workspace “${name}”? The collections in it are left exactly where they are.`,
-          { title: 'Remove workspace', kind: 'warning', okLabel: 'Remove', cancelLabel: 'Cancel' },
+          t('Remove the workspace “{name}”? The collections in it are left exactly where they are.', { name }),
+          { title: t('Remove workspace'), kind: 'warning', okLabel: t('Remove'), cancelLabel: t('Cancel') },
         )
         if (!confirmed) return
         this.workspaces = this.workspaces.filter((w) => w.name !== name)
@@ -1869,7 +1985,18 @@ export const useCollectionStore = defineStore('collection', {
         // A monitor is watching for what the request's tests say, not only
         // for a status: a 200 with the wrong body is still a failure.
         const failing = outcome.checks.find((check) => !check.ok)
-        const why = failing ? `Test failed: ${failing.from} ${failing.note ?? `${failing.op} ${failing.expected}, got ${failing.actual ?? 'nothing'}`}` : null
+        const why = failing
+          ? t('Test failed: {from} {detail}', {
+              from: failing.from,
+              detail:
+                failing.note ??
+                t('{op} {expected}, got {actual}', {
+                  op: failing.op,
+                  expected: failing.expected,
+                  actual: failing.actual ?? t('nothing'),
+                }),
+            })
+          : null
         this.noteRun(monitor, outcome.response.status, outcome.response.durationMs, why)
         if (outcome.history) this.history = [outcome.history, ...this.history].slice(0, HISTORY_LIMIT)
       } catch (error) {
@@ -1884,7 +2011,7 @@ export const useCollectionStore = defineStore('collection', {
       // Only failures interrupt: a monitor that says "fine" every minute is a
       // monitor people turn off.
       const failed = error !== null || (status !== null && status >= 400)
-      if (failed) this.notify(`${monitor.name} failed`, error ?? `Answered ${status}`, 'bad')
+      if (failed) this.notify(t('{name} failed', { name: monitor.name }), error ?? t('Answered {status}', { status: String(status) }), 'bad')
     },
 
 
@@ -1895,7 +2022,7 @@ export const useCollectionStore = defineStore('collection', {
         invoke<MockRunning>('start_mock', { root: this.requireRoot(), port }),
       )
       this.mock = running ?? null
-      if (running) this.notify('Mock is serving', `http://127.0.0.1:${running.port}`)
+      if (running) this.notify(t('Mock is serving'), `http://127.0.0.1:${running.port}`)
       return this.mock
     },
 
@@ -1915,11 +2042,11 @@ export const useCollectionStore = defineStore('collection', {
         const html = await invoke<string>('export_docs', { root })
         const path = await saveDialog({
           defaultPath: `${this.collection?.meta.name ?? 'collection'}.html`,
-          title: 'Write the documentation',
+          title: t('Write the documentation'),
         })
         if (!path) return
         await invoke('save_body', { path, body: html, base64Encoded: false })
-        this.notify('Documentation written', path)
+        this.notify(t('Documentation written'), path)
       })
     },
 
@@ -1934,7 +2061,7 @@ export const useCollectionStore = defineStore('collection', {
       const done = await this.attempt(async () => {
         const said = await invoke<string>('sync_pull', { root: this.requireRoot() })
         await this.reload()
-        this.notify('Pulled', said.split('\n')[0] ?? '')
+        this.notify(t('Pulled'), said.split('\n')[0] ?? '')
         return true
       })
       return done === true
@@ -1943,7 +2070,7 @@ export const useCollectionStore = defineStore('collection', {
     async syncCommit(message: string, push: boolean): Promise<boolean> {
       const done = await this.attempt(async () => {
         const said = await invoke<string>('sync_commit', { root: this.requireRoot(), message, push })
-        this.notify(push ? 'Committed and pushed' : 'Committed', said.split('\n')[0] ?? '')
+        this.notify(push ? t('Committed and pushed') : t('Committed'), said.split('\n')[0] ?? '')
         return true
       })
       return done === true
@@ -1954,8 +2081,8 @@ export const useCollectionStore = defineStore('collection', {
       const written = await this.attempt(async () =>
         invoke<string[]>('write_env_templates', { root: this.requireRoot() }),
       )
-      if (written?.length) this.notify('Templates written', written.join(', '))
-      else if (written) this.notify('Nothing to template', 'No environment has a secret in it yet')
+      if (written?.length) this.notify(t('Templates written'), written.join(', '))
+      else if (written) this.notify(t('Nothing to template'), t('No environment has a secret in it yet'))
       return written ?? []
     },
 
@@ -1965,7 +2092,7 @@ export const useCollectionStore = defineStore('collection', {
     /** Ctrl+Enter means the same thing whatever kind of request is open. */
     async go() {
       const kind = this.request?.kind ?? 'http'
-      const streaming = kind === 'websocket' || kind === 'sse' || (kind === 'grpc' && this.grpcStreams)
+      const streaming = kind === 'websocket' || kind === 'sse' || (kind === 'grpc' && this.grpcStreams) || this.isSubscription
 
       if (streaming) {
         // Only this tab's own connection is ended by this tab's key. Pressing
@@ -1975,9 +2102,10 @@ export const useCollectionStore = defineStore('collection', {
         if (this.myStream) return this.attempt(() => this.closeStream())
         if (this.stream) {
           return this.attempt(async () => {
-            throw new Error('Another request is connected. Disconnect it first.')
+            throw new Error(t('Another request is connected. Disconnect it first.'))
           })
         }
+        if (this.isSubscription) return this.openSubscription()
         return kind === 'grpc' ? this.openGrpcStream() : this.openStream(kind as 'websocket' | 'sse')
       }
       if (kind === 'grpc') return this.sendGrpc()
@@ -1987,7 +2115,7 @@ export const useCollectionStore = defineStore('collection', {
     async openStream(kind: 'websocket' | 'sse') {
       await this.attempt(async () => {
         const root = this.requireRoot()
-        if (!this.request) throw new Error('Open a request first.')
+        if (!this.request) throw new Error(t('Open a request first.'))
         this.streamEvents = []
         const open = await invoke<StreamOpen>('open_stream', {
           root,
@@ -2010,6 +2138,23 @@ export const useCollectionStore = defineStore('collection', {
       for (const event of early) this.noteStreamEvent(event)
     },
 
+    /** A GraphQL subscription: the same pane a socket uses, each result a message. */
+    async openSubscription() {
+      await this.attempt(async () => {
+        const root = this.requireRoot()
+        if (!this.request) throw new Error(t('Open a request first.'))
+        this.streamEvents = []
+        const open = await invoke<StreamOpen>('open_graphql_subscription', {
+          root,
+          request: this.request,
+          envVars: this.environment?.vars ?? [],
+          options: this.options,
+          requestId: this.activeId,
+        })
+        this.adoptStream(open)
+      })
+    },
+
     async closeStream() {
       const open = this.stream
       if (!open) return
@@ -2020,7 +2165,7 @@ export const useCollectionStore = defineStore('collection', {
     async sendStreamText(text: string) {
       await this.attempt(async () => {
         const open = this.stream
-        if (!open) throw new Error('Nothing is connected.')
+        if (!open) throw new Error(t('Nothing is connected.'))
         await invoke('send_stream', { id: open.id, text })
       })
     },
@@ -2055,7 +2200,7 @@ export const useCollectionStore = defineStore('collection', {
     async reflectGrpc(): Promise<GrpcService[]> {
       const services = await this.attempt(async () => {
         const root = this.requireRoot()
-        if (!this.request) throw new Error('Open a request first.')
+        if (!this.request) throw new Error(t('Open a request first.'))
         return await invoke<GrpcService[]>('grpc_reflect', {
           root,
           request: this.request,
@@ -2072,7 +2217,7 @@ export const useCollectionStore = defineStore('collection', {
     async openGrpcStream() {
       await this.attempt(async () => {
         const root = this.requireRoot()
-        if (!this.request) throw new Error('Open a request first.')
+        if (!this.request) throw new Error(t('Open a request first.'))
         this.streamEvents = []
         const open = await invoke<StreamOpen>('open_grpc_stream', {
           root,
@@ -2090,7 +2235,7 @@ export const useCollectionStore = defineStore('collection', {
       try {
         const reply = await this.attempt(async () => {
           const root = this.requireRoot()
-          if (!this.request) throw new Error('Open a request first.')
+          if (!this.request) throw new Error(t('Open a request first.'))
           return await invoke<GrpcReply>('send_grpc', {
             root,
             request: this.request,
@@ -2138,6 +2283,45 @@ export const useCollectionStore = defineStore('collection', {
       return token
     },
 
+
+    async startOAuthDevice(config: OAuthConfig): Promise<OAuthDevice | null> {
+      return (await this.attempt(async () => invoke<OAuthDevice>('oauth_device_start', { config }))) ?? null
+    },
+
+    /** One poll of a device grant. A finished one keeps its token like any other. */
+    async pollOAuthDevice(config: OAuthConfig, deviceCode: string, name: string): Promise<OAuthDevicePoll | null> {
+      const poll = await this.attempt(async () => invoke<OAuthDevicePoll>('oauth_device_poll', { config, deviceCode }))
+      if (!poll) return null
+      if (poll.status === 'done' && poll.token) {
+        this.oauthRefresh = poll.token.refreshToken
+        await this.applyCaptures([{ name: name.trim() || 'token', value: poll.token.accessToken, secret: true }])
+      }
+      return poll
+    },
+
+    /**
+     * What was typed into the OAuth dialog for this collection, minus the
+     * secrets, so the next token is one click rather than a form to fill again.
+     */
+    async loadOAuthSetup(): Promise<{ grant: string; variable: string; config: Partial<OAuthConfig> } | null> {
+      const root = this.root
+      if (!root) return null
+      const store = await loadStore('volt.json', { autoSave: true })
+      const all = (await store.get<Record<string, { grant: string; variable: string; config: Partial<OAuthConfig> }>>(OAUTH_KEY)) ?? {}
+      return all[root] ?? null
+    },
+
+    async saveOAuthSetup(grant: string, variable: string, config: OAuthConfig) {
+      const root = this.root
+      if (!root) return
+      const store = await loadStore('volt.json', { autoSave: true })
+      const all = (await store.get<Record<string, unknown>>(OAUTH_KEY)) ?? {}
+      // The client secret and the password are typed each time, or kept as
+      // secret variables by the person; they are not written here.
+      const { clientSecret: _secret, password: _password, ...rest } = config
+      all[root] = { grant, variable, config: rest }
+      await store.set(OAUTH_KEY, all)
+    },
 
     async send() {
       if (!this.request) return
@@ -2206,7 +2390,7 @@ export const useCollectionStore = defineStore('collection', {
 
         // The sample request's test, explained the first time it runs.
         if (result?.checks?.length && this.activeId === 'hello.yaml' && this.root === this.defaultRoot) {
-          void this.tip('hello', 'That green mark is a test', 'status is 200, on the Tests tab. A failing test is what makes a run fail — here and from volt-run in CI.')
+          void this.tip('hello', t('That green mark is a test'), t('status is 200, on the Tests tab. A failing test is what makes a run fail — here and from volt-run in CI.'))
         }
 
         if (result?.history) {
@@ -2265,7 +2449,7 @@ export const useCollectionStore = defineStore('collection', {
           error: entry.error,
         }
         // A failed send has no response to show, so show why instead.
-        if (entry.error) this.error = `This request failed when it was sent: ${entry.error}`
+        if (entry.error) this.error = t('This request failed when it was sent: {error}', { error: entry.error })
       })
     },
 
@@ -2273,7 +2457,7 @@ export const useCollectionStore = defineStore('collection', {
     async saveHistoryAsNew() {
       await this.attempt(async () => {
         const root = this.requireRoot()
-        if (!this.request || !this.historyEntry) throw new Error('Nothing from history is open.')
+        if (!this.request || !this.historyEntry) throw new Error(t('Nothing from history is open.'))
 
         const id = this.freeId(null, fileBase(this.request.name, 'from-history'))
         const request = this.request
@@ -2292,11 +2476,11 @@ export const useCollectionStore = defineStore('collection', {
     async clearHistory() {
       await this.attempt(async () => {
         const root = this.requireRoot()
-        const confirmed = await ask('Clear the request history for this collection? This cannot be undone.', {
-          title: 'Clear history',
+        const confirmed = await ask(t('Clear the request history for this collection? This cannot be undone.'), {
+          title: t('Clear history'),
           kind: 'warning',
-          okLabel: 'Clear',
-          cancelLabel: 'Cancel',
+          okLabel: t('Clear'),
+          cancelLabel: t('Cancel'),
         })
         if (!confirmed) return
         await invoke('clear_history', { root })

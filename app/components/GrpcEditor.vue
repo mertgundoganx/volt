@@ -15,7 +15,7 @@ const chosen = computed(() => methods.value.find((method) => method.fullName ===
 async function load() {
   const proto = body.value.proto.trim()
   if (!proto) return
-  await reading(() => store.loadGrpcServices(proto), 'No services in that file.')
+  await reading(() => store.loadGrpcServices(proto), t('No services in that file.'))
 }
 
 /**
@@ -24,7 +24,7 @@ async function load() {
  * answer is written down, because a schema belongs to the server.
  */
 async function reflect() {
-  await reading(() => store.reflectGrpc(), 'The server listed no services.')
+  await reading(() => store.reflectGrpc(), t('The server listed no services.'))
 }
 
 async function reading(ask: () => Promise<GrpcService[]>, blank: string) {
@@ -49,9 +49,9 @@ function pick(fullName: string) {
 
 function describe(method: GrpcMethod) {
   const shape = `${method.input} → ${method.output}`
-  if (method.clientStreaming && method.serverStreaming) return `${shape} · both ways, streaming`
-  if (method.clientStreaming) return `${shape} · streaming in`
-  if (method.serverStreaming) return `${shape} · streaming out`
+  if (method.clientStreaming && method.serverStreaming) return t('{shape} · both ways, streaming', { shape })
+  if (method.clientStreaming) return t('{shape} · streaming in', { shape })
+  if (method.serverStreaming) return t('{shape} · streaming out', { shape })
   return shape
 }
 </script>
@@ -63,25 +63,25 @@ function describe(method: GrpcMethod) {
       <input
         :value="body.proto"
         class="field mono"
-        aria-label="Path to the proto file"
+        :aria-label="t('Path to the proto file')"
         placeholder="protos/orders.proto"
         spellcheck="false"
         @input="body = { ...body, proto: ($event.target as HTMLInputElement).value }; store.touch()"
       >
       <button type="button" class="btn btn-sm" :disabled="loading || !body.proto.trim()" @click="load">
-        {{ loading ? 'Reading' : 'Read it' }}
+        {{ loading ? t('Reading') : t('Read it') }}
       </button>
-      <button type="button" class="btn btn-quiet btn-sm" :disabled="loading" title="For a server that describes itself" @click="reflect">
-        Ask the server
+      <button type="button" class="btn btn-quiet btn-sm" :disabled="loading" :title="t('For a server that describes itself')" @click="reflect">
+        {{ t('Ask the server') }}
       </button>
     </div>
 
     <div v-if="methods.length" class="pick">
-      <span class="silk">Method</span>
+      <span class="silk">{{ t('Method') }}</span>
       <UiSelect
         :model-value="body.method"
         :options="methods.map((method) => ({ value: method.fullName, label: method.fullName }))"
-        label="Method to call"
+        :label="t('Method to call')"
         mono
         class="method"
         @update:model-value="pick($event)"
@@ -90,14 +90,14 @@ function describe(method: GrpcMethod) {
     </div>
     <p v-else-if="error" class="error mono">{{ error }}</p>
     <p v-else class="hint">
-      <span>Point at a <code>.proto</code> and read it, or ask the server if it describes itself. Either way, the services are what can be called.</span>
+      <span>{{ t('Point at a') }} <code>.proto</code> {{ t('and read it, or ask the server if it describes itself. Either way, the services are what can be called.') }}</span>
     </p>
 
     <div class="message">
-      <span class="silk">Message</span>
+      <span class="silk">{{ t('Message') }}</span>
       <UiCodeEditor
         :model-value="body.message"
-        label="Request message"
+        :label="t('Request message')"
         placeholder="{ }"
         @update:model-value="body = { ...body, message: $event }; store.touch()"
       />

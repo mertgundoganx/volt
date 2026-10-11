@@ -34,14 +34,14 @@ pub async fn pool(
     url: &str,
     headers: &[(String, String)],
     timeout_ms: u64,
-    verify_tls: bool,
+    transport: &wire::Transport,
 ) -> Result<DescriptorPool> {
     let deadline =
         std::time::Duration::from_millis(if timeout_ms == 0 { 30_000 } else { timeout_ms });
 
     let mut last = String::from("it answered nothing");
     for path in PATHS {
-        match tokio::time::timeout(deadline, ask(url, path, headers, verify_tls)).await {
+        match tokio::time::timeout(deadline, ask(url, path, headers, transport)).await {
             Ok(Ok(files)) => return build(files),
             Ok(Err(error)) => last = error.to_string(),
             Err(_) => return Err(Error::Http("timed out asking what the server serves".into())),
@@ -56,9 +56,9 @@ async fn ask(
     url: &str,
     path: &str,
     headers: &[(String, String)],
-    verify_tls: bool,
+    transport: &wire::Transport,
 ) -> Result<Vec<FileDescriptorProto>> {
-    let mut connection = wire::connect(url, verify_tls).await?;
+    let mut connection = wire::connect(url, transport).await?;
     // Ask before waiting for the headers: a server reads the request message
     // first, so the other order deadlocks.
     let (mut tx, response) = connection.start(path, headers).await?;
@@ -528,7 +528,7 @@ mod tests {
         )
         .await;
 
-        let built = pool(&format!("http://127.0.0.1:{port}"), &[], 5_000, true)
+        let built = pool(&format!("http://127.0.0.1:{port}"), &[], 5_000, &wire::Transport::unproxied())
             .await
             .expect("the server describes itself");
 
@@ -543,7 +543,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_server_that_only_speaks_the_older_name_is_still_understood() {
         let port = serve(sample(), vec!["shop.v1.Orders"], PATHS[1]).await;
-        let built = pool(&format!("http://127.0.0.1:{port}"), &[], 5_000, true).await.unwrap();
+        let built = pool(&format!("http://127.0.0.1:{port}"), &[], 5_000, &wire::Transport::unproxied()).await.unwrap();
         assert!(built.get_service_by_name("shop.v1.Orders").is_some());
     }
 
@@ -551,7 +551,7 @@ mod tests {
     async fn a_server_with_no_reflection_says_so_rather_than_hanging() {
         let port = serve(Vec::new(), Vec::new(), "/nothing/here").await;
         let error =
-            pool(&format!("http://127.0.0.1:{port}"), &[], 5_000, true).await.unwrap_err().to_string();
+            pool(&format!("http://127.0.0.1:{port}"), &[], 5_000, &wire::Transport::unproxied()).await.unwrap_err().to_string();
         assert!(error.contains("reflection"), "{error}");
     }
 }

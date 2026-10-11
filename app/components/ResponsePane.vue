@@ -4,6 +4,7 @@ import { statusTone } from '~/utils/ui'
 import { invoke } from '@tauri-apps/api/core'
 import { save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { countMatches, prettyJson } from '~/utils/syntax'
+import { filterJson } from '~/utils/jsonpath'
 import type { Comparison, Example } from '~/types'
 
 const store = useCollectionStore()
@@ -35,17 +36,50 @@ const image = computed(() => {
 const imageSize = ref('')
 watch(image, () => (imageSize.value = ''))
 
-const shown = computed(() => (view.value === 'pretty' && pretty.value.isJson ? pretty.value.text : (res.value?.body ?? '')))
-const language = computed(() => (view.value === 'pretty' && pretty.value.isJson ? 'json' : 'text'))
+// --- Narrowing a JSON body to a path -------------------------------------------
+const filtering = ref(false)
+const path = ref('')
+const pathInput = ref<HTMLInputElement>()
+const parsed = computed<unknown>(() => {
+  if (!pretty.value.isJson) return undefined
+  try {
+    return JSON.parse(res.value?.body ?? '')
+  } catch {
+    return undefined
+  }
+})
+const filtered = computed(() => {
+  if (!filtering.value || !path.value.trim() || parsed.value === undefined) return null
+  return filterJson(parsed.value, path.value)
+})
+/** What the path matched, as text; null while there is no path, or it found nothing. */
+const filteredText = computed(() => (filtered.value && filtered.value.value !== undefined ? JSON.stringify(filtered.value.value, null, 2) : null))
+
+async function openFilter() {
+  filtering.value = true
+  await nextTick()
+  pathInput.value?.focus()
+}
+function closeFilter() {
+  filtering.value = false
+  path.value = ''
+}
+// A body that is not JSON has nothing to take a path into.
+watch(() => pretty.value.isJson, (json) => {
+  if (!json) closeFilter()
+})
+
+const shown = computed(() => filteredText.value ?? (view.value === 'pretty' && pretty.value.isJson ? pretty.value.text : (res.value?.body ?? '')))
+const language = computed(() => (filteredText.value !== null || (view.value === 'pretty' && pretty.value.isJson) ? 'json' : 'text'))
 
 const isHtml = computed(() => contentType.value === 'text/html')
 
 /** The ways a body can be looked at: what it is decides which are offered. */
 const viewOptions = computed<{ value: View; label: string }[]>(() => {
-  const out: { value: View; label: string }[] = [{ value: 'pretty', label: 'Pretty' }]
-  if (pretty.value.isJson) out.push({ value: 'tree', label: 'Tree' })
-  if (isHtml.value) out.push({ value: 'preview', label: 'Preview' })
-  out.push({ value: 'raw', label: 'Raw' })
+  const out: { value: View; label: string }[] = [{ value: 'pretty', label: t('Pretty') }]
+  if (pretty.value.isJson) out.push({ value: 'tree', label: t('Tree') })
+  if (isHtml.value) out.push({ value: 'preview', label: t('Preview') })
+  out.push({ value: 'raw', label: t('Raw') })
   return out
 })
 const segmentView = computed({
@@ -77,9 +111,9 @@ function onCapture(path: string, name: string) {
 async function copyPath(path: string) {
   try {
     await navigator.clipboard.writeText(path)
-    store.notify('Path copied', path)
+    store.notify(t('Path copied'), path)
   } catch {
-    store.error = 'Could not copy to the clipboard.'
+    store.error = t('Could not copy to the clipboard.')
   }
 }
 
@@ -90,15 +124,15 @@ const redirected = computed(() => {
 
 
 const tabs = computed<TabItem[]>(() => [
-  { key: 'body', label: 'Body', meta: res.value?.bodyIsBase64 ? 'binary' : pretty.value.isJson ? 'json' : contentType.value.split('/')[1] || null },
-  { key: 'headers', label: 'Headers', meta: res.value?.headers.length ?? 0 },
-  { key: 'timeline', label: 'Timeline' },
-  { key: 'examples', label: 'Examples', meta: examples.value.length || null },
+  { key: 'body', label: t('Body'), meta: res.value?.bodyIsBase64 ? t('binary') : pretty.value.isJson ? 'json' : contentType.value.split('/')[1] || null },
+  { key: 'headers', label: t('Headers'), meta: res.value?.headers.length ?? 0 },
+  { key: 'timeline', label: t('Timeline') },
+  { key: 'examples', label: t('Examples'), meta: examples.value.length || null },
 ])
 
 // --- Find in the body --------------------------------------------------------
 const finding = ref(false)
-useShortcut('mod+f', 'Find in the response', () => (store.response ? openFind() : undefined))
+useShortcut('mod+f', t('Find in the response'), () => (store.response ? openFind() : undefined))
 const query = ref('')
 const current = ref(0)
 const findInput = ref<HTMLInputElement>()
@@ -137,11 +171,11 @@ async function saveBody() {
   const body = res.value
   if (!body) return
   await store.attempt(async () => {
-    const path = await saveDialog({ defaultPath: suggestedName(), title: 'Save response body' })
+    const path = await saveDialog({ defaultPath: suggestedName(), title: t('Save response body') })
     if (!path) return
     // The raw body, not the pretty-printed view: what the server actually sent.
     await invoke('save_body', { path, body: body.body, base64Encoded: body.bodyIsBase64 })
-    store.notify('Response saved', path)
+    store.notify(t('Response saved'), path)
   })
 }
 
@@ -157,16 +191,20 @@ const timeline = computed(() => {
 
   lines.push(`${r.sentMethod || '—'} ${r.sentUrl} ${version}`)
   for (const header of r.sentHeaders ?? []) lines.push(`${header.name}: ${header.value}`)
-  if (r.sentBodyBytes) lines.push('', `[request body, ${r.sentBodyBytes} bytes]`)
+  if (r.sentBodyBytes) lines.push('', t('[request body, {n} bytes]', { n: r.sentBodyBytes }))
 
-  for (const hop of r.redirects ?? []) lines.push('', `→ redirected to ${hop}`)
+  for (const hop of r.redirects ?? []) lines.push('', t('→ redirected to {url}', { url: hop }))
 
   lines.push('', `${version} ${r.status} ${r.statusText}`)
   for (const header of r.headers) lines.push(`${header.name}: ${header.value}`)
-  lines.push('', `[response body, ${r.sizeBytes} bytes]`)
+  lines.push('', t('[response body, {n} bytes]', { n: r.sizeBytes }))
   lines.push(
     '',
-    `waiting ${r.timeToFirstByteMs} ms · transferring ${Math.max(0, r.durationMs - r.timeToFirstByteMs)} ms · total ${r.durationMs} ms`,
+    t('waiting {wait} ms · transferring {transfer} ms · total {total} ms', {
+      wait: r.timeToFirstByteMs,
+      transfer: Math.max(0, r.durationMs - r.timeToFirstByteMs),
+      total: r.durationMs,
+    }),
   )
   return lines.join('\n')
 })
@@ -255,35 +293,37 @@ async function copyBody() {
     clearTimeout(copiedTimer)
     copiedTimer = setTimeout(() => (copied.value = false), 1400)
   } catch {
-    store.error = 'Could not copy to the clipboard.'
+    store.error = t('Could not copy to the clipboard.')
   }
 }
 </script>
 
 <template>
-  <section class="response" aria-label="Response" aria-live="polite">
+  <section class="response" :aria-label="t('Response')" aria-live="polite">
     <template v-if="res && !store.sending">
-      <UiTabs v-model="tab" :items="tabs" label="Response sections">
-        <template #end>
+      <UiTabs v-model="tab" :items="tabs" :label="t('Response sections')">
+        <!-- What came back leads the row: it is the first thing looked for. -->
+        <template #start>
           <div class="reading">
             <span class="status" :class="tone">
               <span class="led" :class="tone" />
               <span class="num">{{ res.status }}</span><span class="text">{{ res.statusText }}</span>
             </span>
-            <span class="measure mono num" :title="`First byte after ${res.timeToFirstByteMs} ms, ${Math.max(0, res.durationMs - res.timeToFirstByteMs)} ms transferring`">{{ res.durationMs }} ms</span>
+            <span class="measure mono num" :title="t('First byte after {wait} ms, {transfer} ms transferring', { wait: res.timeToFirstByteMs, transfer: Math.max(0, res.durationMs - res.timeToFirstByteMs) })">{{ res.durationMs }} ms</span>
             <span class="measure mono num">{{ size.value }} {{ size.unit }}</span>
-            <span v-if="res.missingVars.length" class="chip warn" :title="`Sent without a value: ${res.missingVars.join(', ')}`">
-              <UiIcon name="warning" :size="12" />{{ res.missingVars.length }} undefined
+            <span v-if="res.missingVars.length" class="chip warn" :title="t('Sent without a value: {names}', { names: res.missingVars.join(', ') })">
+              <UiIcon name="warning" :size="12" />{{ t('{n} undefined', { n: res.missingVars.length }) }}
             </span>
           </div>
+        </template>
+        <template #end>
           <template v-if="tab === 'body' && res.body">
-            <span class="tools-sep" />
             <template v-if="!res.bodyIsBase64">
               <UiSegmented
                 v-if="viewOptions.length > 2"
                 v-model="segmentView"
                 :options="viewOptions"
-                label="Body view"
+                :label="t('Body view')"
                 size="sm"
               />
               <button
@@ -292,23 +332,35 @@ async function copyBody() {
                 class="icon-btn quiet sm"
                 :class="{ on: view === 'diff' }"
                 :aria-pressed="view === 'diff'"
-                aria-label="Compare with the previous send"
-                title="Compare with the previous send"
+                :aria-label="t('Compare with the previous send')"
+                :title="t('Compare with the previous send')"
                 @click="view = view === 'diff' ? 'pretty' : 'diff'"
               >
                 <UiIcon name="diff" :size="14" />
               </button>
-              <button type="button" class="icon-btn quiet sm" :class="{ on: finding }" :aria-pressed="finding" aria-label="Find in body" :title="`Find in body (${modKey}+F)`" @click="finding ? closeFind() : openFind()">
+              <button
+                v-if="pretty.isJson"
+                type="button"
+                class="icon-btn quiet sm"
+                :class="{ on: filtering }"
+                :aria-pressed="filtering"
+                :aria-label="t('Filter by a path')"
+                :title="t('Show only what a path matches — {example}', { example: '$.items[*].id' })"
+                @click="filtering ? closeFilter() : openFilter()"
+              >
+                <UiIcon name="filter" :size="14" />
+              </button>
+              <button type="button" class="icon-btn quiet sm" :class="{ on: finding }" :aria-pressed="finding" :aria-label="t('Find in body')" :title="t('Find in body ({key}+F)', { key: modKey })" @click="finding ? closeFind() : openFind()">
                 <UiIcon name="search" :size="14" />
               </button>
-              <button type="button" class="icon-btn quiet sm" :class="{ on: wrap }" :aria-pressed="wrap" aria-label="Wrap long lines" title="Wrap long lines" @click="wrap = !wrap">
+              <button type="button" class="icon-btn quiet sm" :class="{ on: wrap }" :aria-pressed="wrap" :aria-label="t('Wrap long lines')" :title="t('Wrap long lines')" @click="wrap = !wrap">
                 <UiIcon name="wrap" :size="14" />
               </button>
-              <button type="button" class="icon-btn quiet sm" :aria-label="copied ? 'Copied' : 'Copy body'" :title="copied ? 'Copied' : 'Copy body'" @click="copyBody">
+              <button type="button" class="icon-btn quiet sm" :aria-label="copied ? t('Copied') : t('Copy body')" :title="copied ? t('Copied') : t('Copy body')" @click="copyBody">
                 <UiIcon :name="copied ? 'check' : 'copy'" :size="14" />
               </button>
             </template>
-            <button type="button" class="icon-btn quiet sm" aria-label="Save body to a file" title="Save body to a file" @click="saveBody">
+            <button type="button" class="icon-btn quiet sm" :aria-label="t('Save body to a file')" :title="t('Save body to a file')" @click="saveBody">
               <UiIcon name="file-down" :size="14" />
             </button>
           </template>
@@ -321,36 +373,53 @@ async function copyBody() {
           ref="findInput"
           v-model="query"
           class="field inline mono"
-          aria-label="Find in body"
-          placeholder="Find"
+          :aria-label="t('Find in body')"
+          :placeholder="t('Find')"
           spellcheck="false"
           @keydown.enter.prevent="step($event.shiftKey ? -1 : 1)"
           @keydown.esc.prevent="closeFind()"
         >
-        <span class="count num">{{ query ? (matches ? `${current + 1} of ${matches}` : 'No matches') : '' }}</span>
-        <button type="button" class="icon-btn quiet sm" aria-label="Previous match" title="Previous (Shift+Enter)" :disabled="!matches" @click="step(-1)">
+        <span class="count num">{{ query ? (matches ? t('{n} of {total}', { n: current + 1, total: matches }) : t('No matches')) : '' }}</span>
+        <button type="button" class="icon-btn quiet sm" :aria-label="t('Previous match')" :title="t('Previous (Shift+Enter)')" :disabled="!matches" @click="step(-1)">
           <UiIcon name="chevron-up" :size="14" />
         </button>
-        <button type="button" class="icon-btn quiet sm" aria-label="Next match" title="Next (Enter)" :disabled="!matches" @click="step(1)">
+        <button type="button" class="icon-btn quiet sm" :aria-label="t('Next match')" :title="t('Next (Enter)')" :disabled="!matches" @click="step(1)">
           <UiIcon name="chevron-down" :size="14" />
         </button>
-        <button type="button" class="icon-btn quiet sm" aria-label="Close find" title="Close (Esc)" @click="closeFind()">
+        <button type="button" class="icon-btn quiet sm" :aria-label="t('Close find')" :title="t('Close (Esc)')" @click="closeFind()">
+          <UiIcon name="x" :size="14" />
+        </button>
+      </div>
+
+      <div v-if="filtering && tab === 'body'" class="find">
+        <UiIcon name="filter" :size="13" />
+        <input
+          ref="pathInput"
+          v-model="path"
+          class="field inline mono"
+          :aria-label="t('Path to show')"
+          placeholder="$.items[*].id"
+          spellcheck="false"
+          @keydown.esc.prevent="closeFilter()"
+        >
+        <span class="count num" :class="{ bad: !!filtered?.error }">{{ filtered ? (filtered.error ?? (filtered.count ? (filtered.count === 1 ? t('1 value') : t('{n} values', { n: filtered.count })) : t('Nothing there'))) : '' }}</span>
+        <button type="button" class="icon-btn quiet sm" :aria-label="t('Close filter')" :title="t('Close (Esc)')" @click="closeFilter()">
           <UiIcon name="x" :size="14" />
         </button>
       </div>
 
       <div v-if="redirected" class="redirect">
         <UiIcon name="arrow-right" :size="13" />
-        <span class="silk">Redirected to</span>
+        <span class="silk">{{ t('Redirected to') }}</span>
         <span class="mono selectable">{{ res.finalUrl }}</span>
       </div>
 
       <div v-if="store.checkResults.length" class="checks" :class="{ failed: store.checkResults.some((check) => !check.ok) }">
-        <span class="silk">Tests</span>
+        <span class="silk">{{ t('Tests') }}</span>
         <span v-for="(check, i) in store.checkResults" :key="i" class="check" :class="{ bad: !check.ok }">
           <span class="led" :class="check.ok ? 'ok' : 'bad'" />
           <span class="mono">{{ check.from }}</span>
-          <span v-if="!check.ok" class="why">{{ check.note ?? `${check.op} ${check.expected}, got ${check.actual ?? 'nothing'}` }}</span>
+          <span v-if="!check.ok" class="why">{{ check.note ?? t('{op} {expected}, got {actual}', { op: check.op, expected: check.expected, actual: check.actual ?? t('nothing') }) }}</span>
         </span>
       </div>
 
@@ -362,19 +431,19 @@ async function copyBody() {
       <div class="viewer">
         <template v-if="tab === 'body'">
           <div v-if="image" class="picture">
-            <img :src="image" alt="The response, as an image" @load="imageSize = `${($event.target as HTMLImageElement).naturalWidth} × ${($event.target as HTMLImageElement).naturalHeight}`">
+            <img :src="image" :alt="t('The response, as an image')" @load="imageSize = `${($event.target as HTMLImageElement).naturalWidth} × ${($event.target as HTMLImageElement).naturalHeight}`">
             <p class="silk">{{ contentType }}<template v-if="imageSize"> · {{ imageSize }}</template> · {{ size.value }} {{ size.unit }}</p>
           </div>
           <div v-else-if="res.bodyIsBase64" class="blank">
             <UiIcon name="file" :size="18" />
-            <p><b>Binary response</b>, {{ size.value }} {{ size.unit }}<template v-if="contentType"> of <code>{{ contentType }}</code></template>. It is not shown as text.</p>
+            <p><b>{{ t('Binary response') }}</b>, {{ size.value }} {{ size.unit }}<template v-if="contentType"> {{ t('of') }} <code>{{ contentType }}</code></template>. {{ t('It is not shown as text.') }}</p>
           </div>
           <div v-else-if="!res.body" class="blank">
-            <p>The response has no body.</p>
+            <p>{{ t('The response has no body.') }}</p>
           </div>
-          <UiJsonTree v-else-if="view === 'tree'" :text="res.body" @capture="onCapture" @copy="copyPath" />
-          <iframe v-else-if="view === 'preview'" class="preview" sandbox="" :srcdoc="res.body" title="The response, rendered" />
-          <UiDiffView v-else-if="view === 'diff'" :before="previousText" :after="currentText" />
+          <UiJsonTree v-else-if="view === 'tree' && filteredText === null" :text="res.body" @capture="onCapture" @copy="copyPath" />
+          <iframe v-else-if="view === 'preview' && filteredText === null" class="preview" sandbox="" :srcdoc="res.body" :title="t('The response, rendered')" />
+          <UiDiffView v-else-if="view === 'diff' && filteredText === null" :before="previousText" :after="currentText" />
           <UiCodeView v-else :text="shown" :language="language" :wrap="wrap" :find="finding ? query : ''" :current="current" />
         </template>
 
@@ -393,7 +462,7 @@ async function copyBody() {
           <div v-if="shownExample" class="shown">
             <div class="shown-head">
               <button type="button" class="btn btn-quiet btn-sm" @click="shownExample = null">
-                <UiIcon name="chevron-up" :size="14" />Back to the list
+                <UiIcon name="chevron-up" :size="14" />{{ t('Back to the list') }}
               </button>
               <span class="silk">{{ shownExample.name }}</span>
               <span class="num">{{ shownExample.status }} {{ shownExample.statusText }}</span>
@@ -406,44 +475,44 @@ async function copyBody() {
               <input
                 v-model="exampleName"
                 class="field"
-                aria-label="Name for this example"
-                placeholder="What this response shows — “404, unknown user”"
+                :aria-label="t('Name for this example')"
+                :placeholder="t('What this response shows — “404, unknown user”')"
                 @keydown.enter.prevent="keepExample()"
                 @keydown.esc.prevent="naming = false"
               >
-              <button type="button" class="btn btn-primary btn-sm" :disabled="!exampleName.trim()" @click="keepExample()">Keep</button>
-              <button type="button" class="btn btn-quiet btn-sm" @click="naming = false">Cancel</button>
+              <button type="button" class="btn btn-primary btn-sm" :disabled="!exampleName.trim()" @click="keepExample()">{{ t('Keep') }}</button>
+              <button type="button" class="btn btn-quiet btn-sm" @click="naming = false">{{ t('Cancel') }}</button>
             </div>
             <button v-else-if="store.activeId" type="button" class="btn btn-sm keep" @click="naming = true; exampleName = suggestedExampleName()">
-              <UiIcon name="plus" :size="14" />Keep this response as an example
+              <UiIcon name="plus" :size="14" />{{ t('Keep this response as an example') }}
             </button>
 
             <div v-if="comparison" class="compare">
               <div class="compare-head">
-                <span class="silk">Against</span>
+                <span class="silk">{{ t('Against') }}</span>
                 <span class="against">{{ comparison.example }}</span>
-                <button type="button" class="icon-btn quiet sm" aria-label="Close the comparison" title="Close" @click="comparing = null; comparison = null">
+                <button type="button" class="icon-btn quiet sm" :aria-label="t('Close the comparison')" :title="t('Close')" @click="comparing = null; comparison = null">
                   <UiIcon name="x" :size="14" />
                 </button>
               </div>
               <p v-if="comparison.same" class="agrees">
-                <span class="led ok" /><span>Same shape and same status as the example.</span>
+                <span class="led ok" /><span>{{ t('Same shape and same status as the example.') }}</span>
               </p>
               <template v-else>
                 <p v-if="comparison.status" class="drift">
-                  <span class="led bad" /><span>Status {{ comparison.status[1] }} now, {{ comparison.status[0] }} when this was kept.</span>
+                  <span class="led bad" /><span>{{ t('Status {now} now, {was} when this was kept.', { now: comparison.status[1], was: comparison.status[0] }) }}</span>
                 </p>
                 <p v-if="comparison.contentType" class="drift">
-                  <span class="led warn" /><span>Type {{ comparison.contentType[1] || 'not said' }} now, {{ comparison.contentType[0] || 'not said' }} then.</span>
+                  <span class="led warn" /><span>{{ t('Type {now} now, {was} then.', { now: comparison.contentType[1] || t('not said'), was: comparison.contentType[0] || t('not said') }) }}</span>
                 </p>
                 <p v-for="path in comparison.removed" :key="`gone-${path}`" class="drift">
-                  <span class="led bad" /><span><code class="mono">{{ path }}</code> is gone.</span>
+                  <span class="led bad" /><span><code class="mono">{{ path }}</code> {{ t('is gone.') }}</span>
                 </p>
                 <p v-for="path in comparison.added" :key="`new-${path}`" class="drift">
-                  <span class="led ok" /><span><code class="mono">{{ path }}</code> is new.</span>
+                  <span class="led ok" /><span><code class="mono">{{ path }}</code> {{ t('is new.') }}</span>
                 </p>
                 <p v-for="field in comparison.retyped" :key="`type-${field.path}`" class="drift">
-                  <span class="led warn" /><span><code class="mono">{{ field.path }}</code> holds a {{ field.now }} now, not a {{ field.was }}.</span>
+                  <span class="led warn" /><span><code class="mono">{{ field.path }}</code> {{ t('holds a {now} now, not a {was}.', { now: field.now, was: field.was }) }}</span>
                 </p>
               </template>
               <p v-if="comparison.note" class="hint">{{ comparison.note }}</p>
@@ -462,19 +531,19 @@ async function copyBody() {
                   type="button"
                   class="icon-btn quiet sm"
                   :class="{ on: comparing === example.name }"
-                  :aria-label="`Compare this response with ${example.name}`"
-                  title="Compare with this reading"
+                  :aria-label="t('Compare this response with {name}', { name: example.name })"
+                  :title="t('Compare with this reading')"
                   @click="compareWith(example.name)"
                 >
                   <UiIcon name="diff" :size="14" />
                 </button>
-                <button type="button" class="icon-btn quiet sm" :aria-label="`Remove ${example.name}`" title="Remove" @click="dropExample(example.name)">
+                <button type="button" class="icon-btn quiet sm" :aria-label="t('Remove {name}', { name: example.name })" :title="t('Remove')" @click="dropExample(example.name)">
                   <UiIcon name="x" :size="14" />
                 </button>
               </li>
             </ul>
             <p v-else class="blank-note">
-              Nothing kept yet. An example is written beside the request, so it is reviewed and shared with it.
+              {{ t('Nothing kept yet. An example is written beside the request, so it is reviewed and shared with it.') }}
             </p>
           </template>
         </div>
@@ -485,20 +554,20 @@ async function copyBody() {
       <div class="idle-bar" :class="{ sending: store.sending }">
         <template v-if="store.sending">
           <span class="led live" />
-          <span class="silk">Sending</span>
+          <span class="silk">{{ t('Sending') }}</span>
           <span class="progress" aria-hidden="true"><i /></span>
         </template>
         <template v-else>
           <span class="led off" />
-          <span class="silk">No response yet</span>
-          <span class="idle-hint">Send the request <span class="kbd">{{ modKey }} ↵</span></span>
+          <span class="silk">{{ t('No response yet') }}</span>
+          <span class="idle-hint">{{ t('Send the request') }} <span class="kbd">{{ modKey }} ↵</span></span>
         </template>
       </div>
       <div class="viewer blank">
         <div class="nothing">
           <span class="glyph mono" aria-hidden="true">{ }</span>
-          <p v-if="store.sending">Waiting for the response…</p>
-          <p v-else>The body and headers of the response show up here.</p>
+          <p v-if="store.sending">{{ t('Waiting for the response…') }}</p>
+          <p v-else>{{ t('The body and headers of the response show up here.') }}</p>
         </div>
       </div>
     </template>
@@ -511,41 +580,37 @@ async function copyBody() {
   flex-direction: column;
   min-height: 0;
   min-width: 0;
-  background: var(--well);
-  --code-bg: var(--well);
+  --code-bg: var(--bg-1);
   container-type: inline-size;
 }
 
 /* The reading sits at the right of the tab row: what came back, how fast, how big. */
 .reading { display: flex; align-items: center; gap: var(--s-3); flex: none; min-width: 0; }
-/* The status is a stamp, like the method on the request: what came back, sealed. */
+/* The status is a pill in the colour of what it means, like the method on the request. */
 .status {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 20px;
-  padding: 0 7px;
-  border-radius: var(--r-xs);
-  background: var(--m-other);
-  color: var(--on-method);
-  font: 600 11px / 1 var(--font-mono);
+  gap: 7px;
+  height: 26px;
+  padding: 0 11px 0 9px;
+  border-radius: var(--r-full);
+  background: var(--hover);
+  color: var(--silk);
+  font: 600 12px / 1 var(--font-mono);
   white-space: nowrap;
 }
-.status .led { display: none; }
-.status .text { margin-left: 4px; }
-.status.ok { background: var(--ok); }
-.status.warn { background: var(--warn); }
-.status.bad { background: var(--bad); }
+.status .text { font-weight: 500; }
+.status.ok { background: var(--ok-tint); color: var(--ok); }
+.status.warn { background: var(--warn-tint); color: var(--warn); }
+.status.bad { background: var(--bad-tint); color: var(--bad); }
 .measure { color: var(--silk); font-size: var(--t-meta); white-space: nowrap; }
-.tools-sep { width: 1px; height: 16px; background: var(--line); margin: 0 2px; }
 
 .idle-bar {
   display: flex;
   align-items: center;
   gap: var(--s-2);
-  height: 36px;
+  height: 40px;
   padding: 0 var(--s-4);
-  border-bottom: 1px solid var(--line);
   flex: none;
 }
 .idle-hint { display: flex; align-items: center; gap: 6px; margin-left: var(--s-2); color: var(--faint); font-size: var(--t-small); }
@@ -629,8 +694,8 @@ async function copyBody() {
  */
 @container (max-width: 760px) {
   .measure { display: none; }
-  .response :deep(.ui-tabs) { gap: var(--s-3); }
   .response :deep(.ui-tab .meta) { display: none; }
+  .response :deep(.ui-tab) { padding: 0 7px; }
 }
 @container (max-width: 680px) {
   .status .text { display: none; }
@@ -642,11 +707,13 @@ async function copyBody() {
   align-items: center;
   gap: var(--s-2);
   padding: 5px var(--s-4);
-  border-bottom: 1px solid var(--line-soft);
-  background: var(--bg-1);
+  margin: 0 var(--s-3) var(--s-1);
+  border-radius: var(--r-sm);
+  background: var(--well);
 }
 .find .field { flex: 1; max-width: 280px; }
 .find .count { flex: none; min-width: 9ch; color: var(--silk); font-size: var(--t-meta); }
+.find .count.bad { color: var(--bad); }
 
 .examples { padding: var(--s-4); overflow: auto; display: grid; gap: var(--s-3); align-content: start; }
 .keep { justify-self: start; }

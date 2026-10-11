@@ -30,19 +30,19 @@ async function pick(path: string) {
 </script>
 
 <template>
-  <UiDialog :title="move ? 'Move to another collection' : 'Copy to another collection'" :eyebrow="target?.name ?? 'Request'" :width="520" @close="emit('close')">
+  <UiDialog :title="move ? t('Move to another collection') : t('Copy to another collection')" :eyebrow="target?.name ?? t('Request')" :width="520" @close="emit('close')">
     <p class="note">
       <span>
-        The request lands at that collection's root, as its own file. Open it from there to put it in a folder.
+        {{ t("The request lands at that collection's root, as its own file. Open it from there to put it in a folder.") }}
       </span>
     </p>
 
     <label class="switch-row">
-      <input v-model="move" type="checkbox" class="switch" aria-label="Move instead of copying">
-      <span>Move — put this one in the bin afterwards</span>
+      <input v-model="move" type="checkbox" class="switch" :aria-label="t('Move instead of copying')">
+      <span>{{ t('Move — put this one in the bin afterwards') }}</span>
     </label>
 
-    <ul v-if="choices.length" class="list" aria-label="Collections">
+    <ul v-if="choices.length" class="list" :aria-label="t('Collections')">
       <li v-for="item in choices" :key="item.path">
         <button type="button" class="line" :title="item.path" :disabled="busy" @click="pick(item.path)">
           <UiIcon name="folder" :size="14" class="glyph" />
@@ -51,11 +51,11 @@ async function pick(path: string) {
         </button>
       </li>
     </ul>
-    <p v-else class="empty">No other collection has been opened yet. Open one first; it will be listed here.</p>
+    <p v-else class="empty">{{ t('No other collection has been opened yet. Open one first; it will be listed here.') }}</p>
 
     <template #footer>
       <span class="spacer" />
-      <button type="button" class="btn btn-quiet" @click="emit('close')">Cancel</button>
+      <button type="button" class="btn btn-quiet" @click="emit('close')">{{ t('Cancel') }}</button>
     </template>
   </UiDialog>
 </template>

@@ -6,7 +6,7 @@ import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync, readdirSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startServer } from './server.mjs'
-import { startDriver, stopDriver, session, check, step, sleep, KEY, driverLog, shots } from './lib.mjs'
+import { startDriver, stopDriver, session, check, step, sleep, KEY, driverLog, shots, english } from './lib.mjs'
 import * as lib from './lib.mjs'
 
 const only = process.env.SECTIONS?.split(',')
@@ -22,12 +22,14 @@ const read = (rel) => readFileSync(join(collection, rel), 'utf8')
 const server = await startServer(8787)
 await startDriver()
 let app
+let restoreLanguage = async () => {}
 try {
   app = await session([collection])
   const { run, runAsync, until, type } = app
   const title = await until('the app', `return store.collection?.meta.name ?? null`, 30000)
   check('the throwaway collection is open', title === 'E2E', title)
   if (title !== 'E2E') throw new Error('wrong collection; stopping')
+  restoreLanguage = await english(app)
 
   /** Makes a fresh request from the sidebar and waits for its editor. */
   const newRequest = async () => {
@@ -137,7 +139,7 @@ try {
     await newRequest()
     await setUrl('{{base}}/basic')
     await openTab('Auth')
-    await run(`button('Basic', $('section.request')).click()`)
+    await run(`setValue($('select[aria-label="Auth type"]'), 'basic')`)
     await until('user field', `return $('input[aria-label="Username"]') ? 1 : null`)
     await run(`setValue($('input[aria-label="Username"]'), 'user'); setValue($('input[aria-label="Password"]'), 'pass')`)
     let r = await send()
@@ -162,7 +164,7 @@ try {
     await newRequest()
     await setUrl('{{base}}/me')
     await openTab('Auth')
-    await run(`button('Bearer', $('section.request')).click()`)
+    await run(`setValue($('select[aria-label="Auth type"]'), 'bearer')`)
     await until('token field', `return $('input[aria-label="Token"]') ? 1 : null`)
     await run(`setValue($('input[aria-label="Token"]'), '{{token}}')`)
     r = await send()
@@ -265,7 +267,7 @@ try {
     check('move to the root', !existsSync(join(collection, getId)))
 
     // Search by name and by contents.
-    await run(`button('Collection').click()`)
+    await run(`button('Collections').click()`)
     await type('input[aria-label="Search requests"]', 'List')
     const hits = await until('hits', `return $$('.hit').length ? $$('.hit').map(text) : null`)
     check('search finds by name', hits.some((h) => h.includes('List users')), hits.join(' | '))
@@ -276,7 +278,9 @@ try {
   })
 
   if (want('env')) await step('Environments and secrets', async () => {
-    await run(`button('Environments').click()`)
+    await run(`button('Environment').click()`)
+    await until('the environment menu', `return button('Manage environments…') ? 1 : null`)
+    await run(`button('Manage environments…').click()`)
     await until('editor', `return $('.ui-dialog') ? 1 : null`)
     await app.screenshot(join(shots, 'env.png'))
     const dialog = await run(`return $$('.ui-dialog input').map((i) => i.value).join(' ')`)
@@ -295,11 +299,15 @@ try {
     // A second environment and switching.
     await runAsync(`return await store.saveEnvironment({ name: 'prod', vars: [{ name: 'base', value: 'http://127.0.0.1:8787/echo/prod', secret: false }] }, null)`)
     await until('two envs', `return store.environments.length === 2 ? 1 : null`)
+    await run(`button('Environment').click()`)
+    await until('the environment menu', `return button('prod') ? 1 : null`)
     await run(`button('prod').click()`)
     await newRequest()
     await setUrl('{{base}}')
     const r = await send()
     check('switching environment changes where it goes', echoed(r).path === '/echo/prod', echoed(r).path)
+    await run(`button('Environment').click()`)
+    await until('the environment menu', `return button('local') ? 1 : null`)
     await run(`button('local').click()`)
   })
 
@@ -327,7 +335,7 @@ try {
     await run(`$$('.history button, .history-list button, nav[aria-label="History"] button').find((b) => /echo|login|me/.test(text(b)))?.click()`)
     const from = await until('reopen', `return store.historyEntry ? 1 : null`, 5000).catch(() => 0)
     check('a history entry reopens', from === 1)
-    await run(`button('Collection').click()`)
+    await run(`button('Collections').click()`)
   })
 
   if (want('runner')) await step('Runner, examples', async () => {
@@ -427,6 +435,9 @@ try {
       await app.screenshot(join(shots, `theme-${theme}.png`))
     }
     await runAsync(`await store.saveTheme('${before}'); return 1`)
+    // Settings are written a moment after they change; the next step ends the
+    // session, and ending it sooner would leave the last test theme on disk.
+    await sleep(600)
     await run(`const d = $('.ui-dialog'); button('Close', d)?.click()`)
   })
 
@@ -444,7 +455,7 @@ try {
 } catch (e) {
   check('run completed', false, e.message)
 } finally {
-  if (app) { try { await app.screenshot(join(shots, 'last.png')) } catch {} ; await app.close() }
+  if (app) { await restoreLanguage(); try { await app.screenshot(join(shots, 'last.png')) } catch {} ; await app.close() }
   stopDriver()
   server.close()
 }

@@ -126,6 +126,42 @@ pub enum Auth {
         #[serde(default)]
         location: ApiKeyLocation,
     },
+    /// OAuth 1.0a. Signed over the finished request with a fresh timestamp
+    /// and nonce, so — like SigV4 — it is added after the plan. See
+    /// `oauth1.rs`.
+    #[serde(rename = "oauth1")]
+    OAuth1 {
+        consumer_key: String,
+        consumer_secret: String,
+        /// Empty when the request is made on the consumer's own behalf.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        token: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        token_secret: String,
+        #[serde(default)]
+        signature_method: OAuth1Signature,
+    },
+}
+
+/// How an OAuth 1.0a request is signed. Written the way the protocol itself
+/// names them, so the YAML says what goes on the wire.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OAuth1Signature {
+    #[default]
+    #[serde(rename = "HMAC-SHA1")]
+    HmacSha1,
+    #[serde(rename = "HMAC-SHA256")]
+    HmacSha256,
+}
+
+impl OAuth1Signature {
+    /// The value of `oauth_signature_method`.
+    pub fn name(self) -> &'static str {
+        match self {
+            OAuth1Signature::HmacSha1 => "HMAC-SHA1",
+            OAuth1Signature::HmacSha256 => "HMAC-SHA256",
+        }
+    }
 }
 
 
@@ -149,6 +185,11 @@ pub struct RequestOptions {
     /// for one. Kept relative to the collection root when it is inside it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_cert: Option<String>,
+    /// A PEM of CA certificates this request's server is signed by, trusted
+    /// in addition to the built-in roots. Relative to the collection root
+    /// when it is inside it, so the file can travel with the requests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ca_cert: Option<String>,
 }
 
 impl RequestOptions {

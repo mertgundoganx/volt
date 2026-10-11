@@ -29,6 +29,7 @@ export type Auth =
   | { type: 'bearer'; token: string }
   | { type: 'basic'; username: string; password: string }
   | { type: 'apikey'; key: string; value: string; location: 'header' | 'query' }
+  | { type: 'oauth1'; consumer_key: string; consumer_secret: string; token: string; token_secret: string; signature_method: 'HMAC-SHA1' | 'HMAC-SHA256' }
 
 export interface ApiRequest {
   name: string
@@ -57,6 +58,8 @@ export interface RequestOptions {
   proxy?: string | null
   /** A PEM holding a client certificate and its key. */
   client_cert?: string | null
+  /** A PEM of certificate authorities to trust besides the built-in ones. */
+  ca_cert?: string | null
 }
 
 export interface EnvVar {
@@ -109,10 +112,14 @@ export interface ExecOptions {
   proxy?: string | null
   sendCookies: boolean
   clientCert?: string | null
+  /** The passphrase of a .p12/.pfx client certificate. Kept in this app's settings only. */
+  clientCertPassword?: string | null
+  /** A PEM of certificate authorities to trust besides the built-in ones. */
+  caCert?: string | null
 }
 
 export function defaultExecOptions(): ExecOptions {
-  return { timeoutMs: 30_000, followRedirects: true, verifyTls: true, proxy: null, sendCookies: true, clientCert: null }
+  return { timeoutMs: 30_000, followRedirects: true, verifyTls: true, proxy: null, sendCookies: true, clientCert: null, clientCertPassword: null, caCert: null }
 }
 
 /** A value read back from disk may predate a field, so fill the gaps. */
@@ -129,6 +136,8 @@ export function normalizeExecOptions(raw: Partial<ExecOptions> | null | undefine
     proxy: raw.proxy?.trim() || null,
     sendCookies: raw.sendCookies ?? fallback.sendCookies,
     clientCert: raw.clientCert?.trim() || null,
+    clientCertPassword: raw.clientCertPassword || null,
+    caCert: raw.caCert?.trim() || null,
   }
 }
 
@@ -252,7 +261,19 @@ export function normalizeRequest(raw: Partial<ApiRequest>): ApiRequest {
     headers: raw.headers ?? [],
     params: raw.params ?? [],
     body: raw.body ?? { type: 'none' },
-    auth: raw.auth ?? { type: 'inherit' },
+    auth: normalizeAuth(raw.auth),
+  }
+}
+
+/** A file leaves empty fields out; the form needs them there to bind to. */
+function normalizeAuth(auth: Auth | undefined): Auth {
+  if (!auth) return { type: 'inherit' }
+  if (auth.type !== 'oauth1') return auth
+  return {
+    ...auth,
+    token: auth.token ?? '',
+    token_secret: auth.token_secret ?? '',
+    signature_method: auth.signature_method ?? 'HMAC-SHA1',
   }
 }
 
@@ -370,6 +391,8 @@ export interface Generated {
 /** Mirrors export::Exported in src-tauri/src/export.rs. */
 export interface Exported {
   json: string
+  /** The same document as YAML; only an OpenAPI export has it. */
+  yaml?: string
   notes: string[]
 }
 
@@ -457,7 +480,7 @@ export interface StreamEvent {
 export interface StreamOpen {
   id: string
   /** A streaming gRPC call is the same kind of thing as a socket. */
-  kind: 'websocket' | 'sse' | 'grpc'
+  kind: 'websocket' | 'sse' | 'grpc' | 'graphql'
   url: string
 }
 
@@ -470,6 +493,26 @@ export interface OAuthConfig {
   scope: string
   audience: string
   basicAuth: boolean
+  /** The resource owner's, for the password grant. */
+  username: string
+  password: string
+  /** Where a device asks for its code, for the device grant. */
+  deviceUrl: string
+}
+
+/** What a device grant shows the person: a code to type at an address. */
+export interface OAuthDevice {
+  deviceCode: string
+  userCode: string
+  verificationUri: string
+  verificationUriComplete?: string | null
+  expiresIn: number
+  interval: number
+}
+
+export interface OAuthDevicePoll {
+  status: 'pending' | 'slow_down' | 'done' | 'denied' | 'expired'
+  token?: OAuthToken | null
 }
 
 export interface OAuthToken {

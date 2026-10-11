@@ -83,7 +83,7 @@ function requestCount(node: Node) {
             :ref="focusInput"
             class="field rename"
             :value="node.name"
-            aria-label="Folder name"
+            :aria-label="t('Folder name')"
             @click.stop
             @keydown.stop.enter="commitRename(node.id, ($event.target as HTMLInputElement).value, node.name)"
             @keydown.esc="stopRenaming()"
@@ -93,10 +93,10 @@ function requestCount(node: Node) {
 
           <span class="count mono num">{{ requestCount(node) }}</span>
           <span class="tools">
-            <button type="button" class="icon-btn quiet sm" aria-label="New request here" title="New request here" @click.stop="store.createRequest(node.id)">
+            <button type="button" class="icon-btn quiet sm" :aria-label="t('New request here')" :title="t('New request here')" @click.stop="store.createRequest(node.id)">
               <UiIcon name="plus" :size="14" />
             </button>
-            <button type="button" class="icon-btn quiet sm" :aria-label="`More for ${node.name}`" title="More" @click.stop="openBelow($event.currentTarget as HTMLElement, node)">
+            <button type="button" class="icon-btn quiet sm" :aria-label="t('More for {name}', { name: node.name })" :title="t('More')" @click.stop="openBelow($event.currentTarget as HTMLElement, node)">
               <UiIcon name="more" :size="14" />
             </button>
           </span>
@@ -129,7 +129,7 @@ function requestCount(node: Node) {
           :ref="focusInput"
           class="field rename"
           :value="node.name"
-          aria-label="Request name"
+          :aria-label="t('Request name')"
           @click.stop
           @keydown.stop.enter="commitRename(node.id, ($event.target as HTMLInputElement).value, node.name)"
           @keydown.esc="stopRenaming()"
@@ -138,7 +138,7 @@ function requestCount(node: Node) {
         <span v-else class="label" @dblclick.stop="startRenaming(node.id)">{{ node.name }}</span>
 
         <span class="tools">
-          <button type="button" class="icon-btn quiet sm" :aria-label="`More for ${node.name}`" title="More" @click.stop="openBelow($event.currentTarget as HTMLElement, node)">
+          <button type="button" class="icon-btn quiet sm" :aria-label="t('More for {name}', { name: node.name })" :title="t('More')" @click.stop="openBelow($event.currentTarget as HTMLElement, node)">
             <UiIcon name="more" :size="14" />
           </button>
         </span>
@@ -180,11 +180,11 @@ function requestCount(node: Node) {
 .chev { color: var(--faint); margin-right: -2px; }
 .folder-glyph { color: var(--silk); }
 
-.request .method { width: 38px; flex: none; text-align: left; margin-left: 20px; }
+.request .method { width: 40px; flex: none; margin-left: 18px; }
 
-/* The request that is open. */
+/* The request that is open: run over with the highlighter. */
 .request.active { background: var(--accent-tint); color: var(--ink); }
-.request.active .label { font-weight: 500; color: var(--accent-text); }
+.request.active .label { font-weight: 600; color: var(--ink); }
 
 .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-small); }
 
@@ -207,7 +207,7 @@ function requestCount(node: Node) {
   left: 4px;
   right: 4px;
   height: 2px;
-  background: var(--accent);
+  background: var(--focus);
   pointer-events: none;
 }
 .row.drop-before::before,
@@ -217,14 +217,14 @@ function requestCount(node: Node) {
   left: 0;
   width: 6px;
   height: 6px;
-  border: 2px solid var(--accent);
+  border: 2px solid var(--focus);
   border-radius: 50%;
-  background: var(--bg-0);
+  background: var(--bg-1);
   pointer-events: none;
 }
 .row.drop-before::after { top: -1px; }
 .row.drop-before::before { top: -3px; }
 .row.drop-after::after { bottom: -1px; }
 .row.drop-after::before { bottom: -3px; }
-.row.drop-inside { background: var(--accent-tint); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.row.drop-inside { background: var(--accent-tint); box-shadow: inset 0 0 0 1.5px var(--focus); }
 </style>

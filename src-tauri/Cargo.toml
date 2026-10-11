@@ -1,6 +1,6 @@
 [package]
 name = "volt"
-version = "0.4.0"
+version = "1.0.0"
 description = "Git-native, open source API client"
 license = "MIT"
 repository = "https://github.com/mertgundoganx/volt"
@@ -66,6 +66,13 @@ webpki-roots = "1"
 protox = "0.9"
 prost-reflect = { version = "0.16", features = ["serde"] }
 prost = "0.14"
+# A client certificate as a PKCS#12 archive (.p12/.pfx). rustls reads PEM and
+# nothing else, and the usual way round that is OpenSSL; this is RustCrypto all
+# the way down, so there is still one TLS stack and no system library.
+p12-keystore = "0.4"
+# OAuth 1.0a's default signature is HMAC-SHA1. Already in the tree through
+# tungstenite, which needs it for the WebSocket handshake.
+sha1 = "0.11"
 
 [profile.release]
 codegen-units = 1
@@ -76,3 +83,9 @@ strip = true
 [[bin]]
 name = "volt-run"
 path = "src/bin/volt-run.rs"
+
+[dev-dependencies]
+# Makes an authority, a server certificate and a client certificate for the TLS
+# tests, so they run a real handshake over loopback instead of trusting a
+# fixture that expires.
+rcgen = "0.14"

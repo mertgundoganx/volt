@@ -18,7 +18,13 @@ use crate::model::{ApiKeyLocation, Auth, Body, CollectionMeta, FolderMeta, KeyVa
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Exported {
+    /// The document as JSON. Always JSON, whatever was exported.
     pub json: String,
+    /// The same document as YAML, for the formats people keep that way —
+    /// OpenAPI. Absent, not null, where there is no such thing: a Postman
+    /// collection is JSON and nothing else.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub yaml: Option<String>,
     /// What did not survive the trip, said plainly rather than dropped.
     pub notes: Vec<String>,
 }
@@ -62,7 +68,7 @@ pub fn postman(root: &std::path::Path, collection: &Collection) -> Result<Export
 
     let json = serde_json::to_string_pretty(&Value::Object(out))
         .map_err(|e| crate::error::Error::Invalid(format!("could not write the export: {e}")))?;
-    Ok(Exported { json, notes })
+    Ok(Exported { json, yaml: None, notes })
 }
 
 fn item(root: &std::path::Path, node: &Node, notes: &mut Vec<String>) -> Result<Value> {
@@ -228,6 +234,19 @@ fn auth(auth: &Auth) -> Option<Value> {
                 { "key": "sessionToken", "value": session_token, "type": "string" },
             ],
         })),
+        Auth::OAuth1 { consumer_key, consumer_secret, token, token_secret, signature_method } => Some(json!({
+            "type": "oauth1",
+            "oauth1": [
+                { "key": "consumerKey", "value": consumer_key, "type": "string" },
+                { "key": "consumerSecret", "value": consumer_secret, "type": "string" },
+                { "key": "token", "value": token, "type": "string" },
+                { "key": "tokenSecret", "value": token_secret, "type": "string" },
+                { "key": "signatureMethod", "value": signature_method.name(), "type": "string" },
+                { "key": "version", "value": "1.0", "type": "string" },
+                // Where volt puts them, so Postman sends the same request.
+                { "key": "addParamsToHeader", "value": true, "type": "boolean" },
+            ],
+        })),
         Auth::ApiKey { key, value, location } => Some(json!({
             "type": "apikey",
             "apikey": [
@@ -342,5 +361,40 @@ mod tests {
             }
         }
         assert!(out.notes.iter().any(|n| n.contains("Environments were not exported")), "{:?}", out.notes);
+    }
+
+    #[test]
+    fn oauth1_is_written_the_way_postman_reads_it_and_reads_back_the_same() {
+        let written = auth(&Auth::OAuth1 {
+            consumer_key: "ck".into(),
+            consumer_secret: "{{consumerSecret}}".into(),
+            token: "tok".into(),
+            token_secret: "{{tokenSecret}}".into(),
+            signature_method: crate::model::OAuth1Signature::HmacSha256,
+        })
+        .expect("it has a Postman shape");
+        assert_eq!(written["type"], "oauth1");
+        let field = |key: &str| {
+            written["oauth1"].as_array().unwrap().iter().find(|item| item["key"] == key).map(|item| item["value"].clone())
+        };
+        assert_eq!(field("consumerKey"), Some(json!("ck")));
+        assert_eq!(field("consumerSecret"), Some(json!("{{consumerSecret}}")), "the placeholder travels, never a value");
+        assert_eq!(field("signatureMethod"), Some(json!("HMAC-SHA256")));
+        assert_eq!(field("addParamsToHeader"), Some(json!(true)), "where volt itself puts them");
+
+        // Through the importer and out the other side unchanged.
+        let export = json!({
+            "info": { "name": "Round", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json" },
+            "item": [{ "name": "R", "request": { "method": "GET", "url": "https://x.test/", "auth": written } }],
+        });
+        let back = crate::import::parse(&export.to_string()).unwrap();
+        let crate::import::ImportNode::Request(request) = &back.nodes[0] else { panic!() };
+        assert!(
+            matches!(&request.auth, Auth::OAuth1 { consumer_key, token, signature_method, .. }
+                if consumer_key == "ck" && token == "tok" && *signature_method == crate::model::OAuth1Signature::HmacSha256),
+            "{:?}",
+            request.auth
+        );
+        assert!(back.warnings.render().is_empty(), "{:?}", back.warnings.render());
     }
 }

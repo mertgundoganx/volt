@@ -32,8 +32,8 @@ function cancel() {
     <input
       ref="input"
       class="field"
-      placeholder="Folder name"
-      aria-label="New folder name"
+      :placeholder="t('Folder name')"
+      :aria-label="t('New folder name')"
       @keydown.enter="commit(($event.target as HTMLInputElement).value)"
       @keydown.esc="cancel"
       @blur="commit(($event.target as HTMLInputElement).value)"

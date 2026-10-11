@@ -29,34 +29,33 @@ function when(at: string) {
 </script>
 
 <template>
-  <UiDialog title="Bin" eyebrow="This collection" :width="680" @close="emit('close')">
+  <UiDialog :title="t('Bin')" :eyebrow="t('This collection')" :width="680" @close="emit('close')">
     <p class="note">
       <UiIcon name="trash" :size="14" />
       <span>
-        A deleted request or folder is moved here rather than removed, so it can be
-        put back. The bin is a gitignored <code>.trash/</code> folder inside the
-        collection; emptying it is the only thing that actually deletes.
+        {{ t('A deleted request or folder is moved here rather than removed, so it can be put back.') }}
+        {{ t('The bin is a gitignored') }} <code>.trash/</code> {{ t('folder inside the collection; emptying it is the only thing that actually deletes.') }}
       </span>
     </p>
 
-    <p v-if="loading" class="empty">Looking…</p>
-    <p v-else-if="!items.length" class="empty">Nothing has been deleted.</p>
+    <p v-if="loading" class="empty">{{ t('Looking…') }}</p>
+    <p v-else-if="!items.length" class="empty">{{ t('Nothing has been deleted.') }}</p>
 
     <ul v-else class="items">
       <li v-for="item in items" :key="item.at">
         <UiIcon :name="item.folder ? 'folder' : 'file'" :size="14" class="what" />
         <span class="name">{{ item.name }}</span>
         <span class="at silk">{{ when(item.at) }}</span>
-        <button type="button" class="btn btn-quiet btn-sm" @click="restore(item)">Put it back</button>
+        <button type="button" class="btn btn-quiet btn-sm" @click="restore(item)">{{ t('Put it back') }}</button>
       </li>
     </ul>
 
     <template #footer>
       <button type="button" class="btn btn-quiet btn-sm" :disabled="!items.length" @click="empty">
-        <UiIcon name="trash" :size="14" />Empty the bin
+        <UiIcon name="trash" :size="14" />{{ t('Empty the bin') }}
       </button>
       <span class="spacer" />
-      <button type="button" class="btn btn-primary" @click="emit('close')">Done</button>
+      <button type="button" class="btn btn-primary" @click="emit('close')">{{ t('Done') }}</button>
     </template>
   </UiDialog>
 </template>

@@ -18,6 +18,9 @@ function onKey(event: KeyboardEvent, index: number) {
 
 <template>
   <div class="ui-tabs" role="tablist" :aria-label="label">
+    <div v-if="$slots.start" class="start">
+      <slot name="start" />
+    </div>
     <button
       v-for="(item, index) in items"
       :key="item.key"
@@ -33,7 +36,7 @@ function onKey(event: KeyboardEvent, index: number) {
     >
       <span class="silk name">{{ item.label }}</span>
       <span v-if="item.meta !== undefined && item.meta !== null && item.meta !== ''" class="meta mono">{{ item.meta }}</span>
-      <span v-if="item.dot" class="dot" aria-label="has content" />
+      <span v-if="item.dot" class="dot" :aria-label="t('has content')" />
     </button>
     <div class="end">
       <slot name="end" />
@@ -44,52 +47,44 @@ function onKey(event: KeyboardEvent, index: number) {
 <style scoped>
 .ui-tabs {
   display: flex;
-  align-items: stretch;
-  gap: var(--s-4);
-  height: 36px;
-  padding: 0 var(--s-4);
-  border-bottom: 1px solid var(--line);
+  align-items: center;
+  gap: 2px;
+  height: 40px;
+  padding: 0 var(--s-3);
   flex: none;
+  min-width: 0;
+  /* In a narrow pane the row scrolls sideways rather than cutting a tab off. */
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.ui-tabs::-webkit-scrollbar { display: none; }
 
+/* A word; the one you are on is run over with the marker. */
 .ui-tab {
-  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 1px;
-  border-radius: 0;
-}
-.ui-tab .name { font-size: var(--t-small); font-weight: 500; color: var(--silk); transition: color var(--dur) var(--ease); }
-/* The open tab is underlined; nothing else moves. */
-.ui-tab::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 2px;
-  background: transparent;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--r-full);
+  flex: none;
   transition: background var(--dur) var(--ease);
 }
+.ui-tab .name { font-size: var(--t-small); font-weight: 500; color: var(--silk); transition: color var(--dur) var(--ease); }
+.ui-tab:hover { background: var(--hover); }
 .ui-tab:hover .name { color: var(--ink); }
-.ui-tab.on .name { color: var(--ink); }
-.ui-tab.on::after { background: var(--accent); }
-.ui-tab:focus-visible { outline-offset: -2px; border-radius: var(--r-xs); }
+.ui-tab.on { background: var(--accent-tint); }
+.ui-tab.on .name { color: var(--ink); font-weight: 600; }
+.ui-tab:focus-visible { outline-offset: 1px; border-radius: var(--r-full); }
 
 .meta {
-  display: inline-flex;
-  align-items: center;
-  height: 16px;
-  padding: 0 5px;
-  border-radius: var(--r-xs);
-  background: var(--hover);
   font-size: var(--t-micro);
   font-weight: 500;
-  color: var(--silk);
+  color: var(--faint);
 }
-.ui-tab.on .meta { color: var(--accent-text); background: var(--accent-tint); }
-.dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.ui-tab.on .meta { color: var(--ink-2); }
+.dot { width: 5px; height: 5px; border-radius: 50%; background: var(--ink-2); }
 
-.end { margin-left: auto; display: flex; align-items: center; gap: var(--s-2); }
+.start { display: flex; align-items: center; gap: var(--s-2); margin-right: var(--s-2); flex: none; }
+.end { margin-left: auto; display: flex; align-items: center; gap: var(--s-1); padding-left: var(--s-2); flex: none; }
 </style>

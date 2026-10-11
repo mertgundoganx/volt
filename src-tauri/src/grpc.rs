@@ -116,7 +116,8 @@ pub struct Call<'a> {
     pub message: &'a str,
     pub headers: &'a [(String, String)],
     pub timeout_ms: u64,
-    pub verify_tls: bool,
+    /// What to trust, what to present and what to go through.
+    pub transport: &'a wire::Transport,
 }
 
 /// Look the method up and encode the message — everything that can be got
@@ -194,31 +195,11 @@ fn key_values(map: &http::HeaderMap) -> Vec<KeyValue> {
 fn status_of(headers: &http::HeaderMap, trailers: Option<&http::HeaderMap>) -> (i32, Option<String>) {
     let read = |map: &http::HeaderMap| {
         let code = wire::header(map, "grpc-status").and_then(|value| value.parse::<i32>().ok());
-        let message = wire::header(map, "grpc-message").map(|text| unescape(&text));
+        // Percent-encoded on the wire, and a message full of `%20` helps nobody.
+        let message = wire::header(map, "grpc-message").map(|text| wire::percent_decode(&text));
         code.map(|code| (code, message))
     };
     trailers.and_then(read).or_else(|| read(headers)).unwrap_or((0, None))
-}
-
-/// `grpc-message` is percent-encoded, and a message full of `%20` helps nobody.
-fn unescape(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut at = 0;
-    while at < bytes.len() {
-        let hex = (at + 2 < bytes.len()).then(|| &text[at + 1..at + 3]);
-        match (bytes[at], hex.and_then(|hex| u8::from_str_radix(hex, 16).ok())) {
-            (b'%', Some(byte)) => {
-                out.push(byte);
-                at += 3;
-            }
-            (byte, _) => {
-                out.push(byte);
-                at += 1;
-            }
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// One request, one reply.
@@ -233,7 +214,7 @@ pub async fn unary(pool: &DescriptorPool, call: &Call<'_>) -> Result<Reply> {
 
     let started = std::time::Instant::now();
     let work = async {
-        let mut connection = wire::connect(call.url, call.verify_tls).await?;
+        let mut connection = wire::connect(call.url, call.transport).await?;
         // The message goes out before the headers are waited for: a gRPC server
         // reads the request before it answers.
         let (mut tx, response) = connection.start(&path, &headers_for(call)).await?;
@@ -295,7 +276,7 @@ pub async fn open_stream(
         return Err(Error::Invalid(format!("`{}` is a unary call — send it", method.name())));
     }
 
-    let mut connection = wire::connect(call.url, call.verify_tls).await?;
+    let mut connection = wire::connect(call.url, call.transport).await?;
 
     // Send first, then wait for the headers: a gRPC server reads the request
     // message before it answers, so the other order deadlocks. The first
@@ -412,6 +393,11 @@ pub fn status_text(code: i32) -> &'static str {
 mod tests {
     use super::*;
 
+    /// Straight to loopback: none of these tests is about TLS or a proxy.
+    /// Explicitly direct, so a proxy in the environment of whoever runs the
+    /// tests cannot get between a test and its own server.
+    static DIRECT: wire::Transport = wire::Transport::unproxied();
+
     fn pool() -> DescriptorPool {
         compile(&std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../examples/grpc-sample.proto"))
             .expect("the sample proto compiles")
@@ -452,7 +438,7 @@ mod tests {
                 message: "{}",
                 headers: &[],
                 timeout_ms: 1_000,
-                verify_tls: true,
+                transport: &DIRECT,
             },
         )
         .await
@@ -472,7 +458,7 @@ mod tests {
                 message: r#"{"nope": 1}"#,
                 headers: &[],
                 timeout_ms: 1_000,
-                verify_tls: true,
+                transport: &DIRECT,
             },
         )
         .await
@@ -495,7 +481,7 @@ mod tests {
                         message: "{}",
                         headers: &[],
                         timeout_ms: 1_000,
-                        verify_tls: true,
+                        transport: &DIRECT,
                     },
                 )
                 .await
@@ -542,64 +528,86 @@ mod tests {
     /// A gRPC server on loopback: real frames, real trailers, no mocking of the
     /// thing under test.
     async fn serve(script: Script) -> u16 {
+        serve_on(script, None).await
+    }
+
+    /// The same server, behind TLS when given an acceptor.
+    async fn serve_on(script: Script, acceptor: Option<tokio_rustls::TlsAcceptor>) -> u16 {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
 
         tokio::spawn(async move {
-            let (socket, _) = listener.accept().await.unwrap();
-            let mut connection = h2::server::handshake(socket).await.unwrap();
-            while let Some(Ok((request, mut respond))) = connection.accept().await {
-                let script = script.clone();
-                tokio::spawn(async move {
-                    let mut body = request.into_body();
+            // One connection after another: a client refused at the handshake
+            // is part of what the TLS tests are about, and the next one in has
+            // to find the server still there.
+            loop {
+                let mut connection = loop {
+                    let (socket, _) = listener.accept().await.unwrap();
+                    let io: wire::Stream = match &acceptor {
+                        None => Box::new(socket),
+                        Some(acceptor) => match acceptor.accept(socket).await {
+                            Ok(tls) => Box::new(tls),
+                            Err(_) => continue,
+                        },
+                    };
+                    match h2::server::handshake(io).await {
+                        Ok(connection) => break connection,
+                        Err(_) => continue,
+                    }
+                };
+                while let Some(Ok((request, mut respond))) = connection.accept().await {
+                    let script = script.clone();
+                    tokio::spawn(async move {
+                        let mut body = request.into_body();
 
-                    // A real gRPC server reads the request message BEFORE it
-                    // answers. Waiting here is what makes a client that awaits
-                    // the response headers before sending deadlock — which is
-                    // exactly the bug this shape is here to catch.
-                    let first = body.data().await;
+                        // A real gRPC server reads the request message BEFORE it
+                        // answers. Waiting here is what makes a client that awaits
+                        // the response headers before sending deadlock — which is
+                        // exactly the bug this shape is here to catch.
+                        let first = body.data().await;
 
-                    let response = http::Response::builder()
-                        .status(200)
-                        .header("content-type", "application/grpc")
-                        .body(())
-                        .unwrap();
-                    let mut out = respond.send_response(response, false).unwrap();
+                        let response = http::Response::builder()
+                            .status(200)
+                            .header("content-type", "application/grpc")
+                            .body(())
+                            .unwrap();
+                        let mut out = respond.send_response(response, false).unwrap();
 
-                    let mut seen = 0usize;
-                    let take = |chunk: &bytes::Bytes| chunk.len() > 5;
-                    if let Some(Ok(chunk)) = first {
-                        let _ = body.flow_control().release_capacity(chunk.len());
-                        if script.echo && take(&chunk) {
-                            if let Some(reply) = script.messages.first() {
-                                push(&mut out, reply).await;
+                        let mut seen = 0usize;
+                        let take = |chunk: &bytes::Bytes| chunk.len() > 5;
+                        if let Some(Ok(chunk)) = first {
+                            let _ = body.flow_control().release_capacity(chunk.len());
+                            if script.echo && take(&chunk) {
+                                if let Some(reply) = script.messages.first() {
+                                    push(&mut out, reply).await;
+                                }
+                                seen += 1;
                             }
-                            seen += 1;
                         }
-                    }
-                    while let Some(Ok(chunk)) = body.data().await {
-                        let _ = body.flow_control().release_capacity(chunk.len());
-                        if script.echo && take(&chunk) {
-                            let reply = script.messages.get(seen).or(script.messages.first());
-                            if let Some(reply) = reply {
-                                push(&mut out, reply).await;
+                        while let Some(Ok(chunk)) = body.data().await {
+                            let _ = body.flow_control().release_capacity(chunk.len());
+                            if script.echo && take(&chunk) {
+                                let reply = script.messages.get(seen).or(script.messages.first());
+                                if let Some(reply) = reply {
+                                    push(&mut out, reply).await;
+                                }
+                                seen += 1;
                             }
-                            seen += 1;
                         }
-                    }
-                    if !script.echo {
-                        for message in &script.messages {
-                            push(&mut out, message).await;
+                        if !script.echo {
+                            for message in &script.messages {
+                                push(&mut out, message).await;
+                            }
                         }
-                    }
 
-                    let mut trailers = http::HeaderMap::new();
-                    trailers.insert("grpc-status", script.status.to_string().parse().unwrap());
-                    if !script.message.is_empty() {
-                        trailers.insert("grpc-message", script.message.parse().unwrap());
-                    }
-                    out.send_trailers(trailers).unwrap();
-                });
+                        let mut trailers = http::HeaderMap::new();
+                        trailers.insert("grpc-status", script.status.to_string().parse().unwrap());
+                        if !script.message.is_empty() {
+                            trailers.insert("grpc-message", script.message.parse().unwrap());
+                        }
+                        out.send_trailers(trailers).unwrap();
+                    });
+                }
             }
         });
         port
@@ -617,7 +625,7 @@ mod tests {
     }
 
     fn call_to<'a>(url: &'a str, method: &'a str, message: &'a str) -> Call<'a> {
-        Call { url, method, message, headers: &[], timeout_ms: 5_000, verify_tls: true }
+        Call { url, method, message, headers: &[], timeout_ms: 5_000, transport: &DIRECT }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -786,5 +794,70 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(error.contains("unary call"), "{error}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_call_over_tls_trusts_the_named_ca_and_presents_the_client_certificate() {
+        let pool = pool();
+        let pki = wire::testing::Pki::new("grpc-tls");
+        let script = Script { messages: vec![order(&pool, "T-1", 7)], ..Default::default() };
+        // The server insists on a client certificate signed by its authority.
+        let port = serve_on(script, Some(pki.acceptor(true, &[b"h2"]))).await;
+        let url = format!("https://localhost:{port}");
+        let call = |transport: &'static wire::Transport| Call {
+            url: Box::leak(url.clone().into_boxed_str()),
+            method: "shop.v1.Orders/GetOrder",
+            message: r#"{"id":"T-1"}"#,
+            headers: &[],
+            timeout_ms: 5_000,
+            transport,
+        };
+        let leak = |transport: wire::Transport| -> &'static wire::Transport { Box::leak(Box::new(transport)) };
+
+        let unknown = unary(&pool, &call(&DIRECT)).await.unwrap_err().to_string();
+        assert!(unknown.contains("TLS failed"), "an authority nobody vouched for: {unknown}");
+
+        let anonymous = unary(&pool, &call(leak(pki.trusting()))).await;
+        assert!(anonymous.is_err(), "trusted, but the server wanted a certificate: {anonymous:?}");
+
+        let pem = leak(wire::Transport { client_cert: Some(pki.client.clone()), ..pki.trusting() });
+        let reply = unary(&pool, &call(pem)).await.expect("with a PEM identity the call goes through");
+        assert_eq!(reply.status, 0);
+        assert!(reply.body.contains("T-1"), "{}", reply.body);
+
+        let archive = leak(wire::Transport {
+            client_cert: Some(pki.client_p12.clone()),
+            client_cert_password: Some(wire::testing::PASSPHRASE.into()),
+            ..pki.trusting()
+        });
+        let reply = unary(&pool, &call(archive)).await.expect("and with a PKCS#12 one");
+        assert!(reply.body.contains("T-1"), "{}", reply.body);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_call_goes_through_the_proxy_when_one_is_set() {
+        let pool = pool();
+        let port = serve(Script { messages: vec![order(&pool, "P-1", 3)], ..Default::default() }).await;
+        let (proxy, asked) = wire::testing::http_proxy().await;
+
+        let url = format!("http://127.0.0.1:{port}");
+        let transport = wire::Transport { proxy: Some(format!("http://127.0.0.1:{proxy}")), ..wire::Transport::direct() };
+        let reply = unary(
+            &pool,
+            &Call {
+                url: &url,
+                method: "shop.v1.Orders/GetOrder",
+                message: r#"{"id":"P-1"}"#,
+                headers: &[],
+                timeout_ms: 5_000,
+                transport: &transport,
+            },
+        )
+        .await
+        .expect("HTTP/2 runs inside the tunnel like anywhere else");
+        assert!(reply.body.contains("P-1"), "{}", reply.body);
+
+        let seen = asked.lock().unwrap().clone();
+        assert!(seen.len() == 1 && seen[0].starts_with(&format!("CONNECT 127.0.0.1:{port} ")), "{seen:?}");
     }
 }

@@ -4,7 +4,7 @@ import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync, readdirSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startServer } from './server.mjs'
-import { startDriver, stopDriver, session, check, step, sleep, KEY, driverLog, shots } from './lib.mjs'
+import { startDriver, stopDriver, session, check, step, sleep, KEY, driverLog, shots, english } from './lib.mjs'
 import * as lib from './lib.mjs'
 
 const only = process.env.SECTIONS?.split(',')
@@ -22,11 +22,13 @@ const read = (rel) => readFileSync(join(collection, rel), 'utf8')
 const server = await startServer(8787)
 await startDriver()
 let app
+let restoreLanguage = async () => {}
 try {
   app = await session([collection])
   const { run, runAsync, until, type } = app
   const title = await until('the app', `return store.collection?.meta.name ?? null`, 30000)
   if (title !== 'Three') throw new Error(`wrong collection ${title}; stopping`)
+  restoreLanguage = await english(app)
 
   const newRequest = async (folder = null) => {
     const before = await run(`return store.activeId`)
@@ -88,7 +90,7 @@ try {
     await run(`setValue($('input[aria-label="Filter history"]'), 'nothing-like-this')`)
     const none = await run(`return text($('.history .none'))`)
     check('nothing matching says so', /Nothing sent matches/.test(none), none)
-    await run(`setValue($('input[aria-label="Filter history"]'), ''); button('Collection').click()`)
+    await run(`setValue($('input[aria-label="Filter history"]'), ''); button('Collections').click()`)
   })
 
   if (want('image')) await step('An image response is shown', async () => {
@@ -204,7 +206,7 @@ try {
 } catch (e) {
   check('run completed', false, e.message)
 } finally {
-  if (app) { try { await app.screenshot(join(shots, 'last3.png')) } catch {} ; await app.close() }
+  if (app) { await restoreLanguage(); try { await app.screenshot(join(shots, 'last3.png')) } catch {} ; await app.close() }
   stopDriver()
   server.close()
 }

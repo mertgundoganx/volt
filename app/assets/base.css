@@ -1,12 +1,12 @@
 /*
  * Base elements and the small shared vocabulary every component speaks:
- * .silk (a label), .btn, .icon-btn, .field, .led, .method, .var, .kbd, .chip.
- * Anything bigger is a component in components/ui/.
+ * .silk (a label), .btn, .icon-btn, .field, .led, .method, .var, .kbd, .chip,
+ * .panel. Anything bigger is a component in components/ui/.
  *
- * Everything here is flat. A control is a rectangle with a hairline and a
- * fill; it darkens a step under the pointer and another when pressed. What is
- * live — focused, selected, the Send key — wears the accent, and nothing else
- * does.
+ * Controls are filled, not outlined: a button or a field is a rounded patch a
+ * step darker than the panel it sits on, and it darkens another step under
+ * the pointer. A border appears only for focus. What acts — the Send key, the
+ * thing you are on, a `{{variable}}` — is run over with the highlighter.
  */
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -14,7 +14,7 @@
 html, body, #__nuxt { height: 100%; margin: 0; }
 
 body {
-  background: var(--bg-1);
+  background: var(--bg-0);
   color: var(--ink);
   font: 400 var(--t-body) / 1.45 var(--font-ui);
   -webkit-font-smoothing: antialiased;
@@ -36,7 +36,7 @@ svg { flex: none; }
 
 :focus { outline: none; }
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
   border-radius: var(--r-xs);
 }
@@ -107,27 +107,28 @@ select:focus-visible { outline: none; }
   gap: 6px;
   height: var(--h-control);
   padding: 0 var(--s-3);
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: var(--r-sm);
-  background: var(--bg-2);
+  background: var(--well);
   color: var(--ink);
   font-weight: 500;
   font-size: var(--t-body);
   white-space: nowrap;
   transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
-.btn:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 5%, var(--bg-2)); border-color: var(--line-strong); }
-.btn:active:not(:disabled) { background: color-mix(in srgb, var(--ink) 10%, var(--bg-2)); }
+.btn:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 7%, var(--well)); }
+.btn:active:not(:disabled) { background: color-mix(in srgb, var(--ink) 13%, var(--well)); }
 .btn:disabled { opacity: 0.45; }
 
 /* The confirming action. One per screen. */
 .btn-primary {
   background: var(--accent);
-  border-color: var(--accent);
+  border-color: transparent;
   color: var(--accent-ink);
+  font-weight: 600;
 }
-.btn-primary:hover:not(:disabled) { background: var(--accent-hi); border-color: var(--accent-hi); }
-.btn-primary:active:not(:disabled) { background: var(--accent-lo); border-color: var(--accent-lo); }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hi); }
+.btn-primary:active:not(:disabled) { background: var(--accent-lo); }
 
 .btn-quiet {
   background: transparent;
@@ -138,7 +139,7 @@ select:focus-visible { outline: none; }
 .btn-quiet:active:not(:disabled) { background: var(--press); }
 
 .btn-danger { color: var(--bad); }
-.btn-danger:hover:not(:disabled) { background: var(--bad-tint); border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
+.btn-danger:hover:not(:disabled) { background: var(--bad-tint); }
 
 .btn-sm { height: 26px; padding: 0 10px; font-size: var(--t-small); gap: 5px; }
 
@@ -147,20 +148,20 @@ select:focus-visible { outline: none; }
   place-items: center;
   width: 28px;
   height: 28px;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: var(--r-sm);
-  background: var(--bg-2);
+  background: var(--well);
   color: var(--ink-2);
   transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-.icon-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 5%, var(--bg-2)); border-color: var(--line-strong); color: var(--ink); }
-.icon-btn:active:not(:disabled) { background: color-mix(in srgb, var(--ink) 10%, var(--bg-2)); }
+.icon-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 7%, var(--well)); color: var(--ink); }
+.icon-btn:active:not(:disabled) { background: color-mix(in srgb, var(--ink) 13%, var(--well)); }
 .icon-btn:disabled { opacity: 0.4; }
 .icon-btn.quiet { border-color: transparent; background: transparent; color: var(--silk); }
 .icon-btn.quiet:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
 .icon-btn.quiet:active:not(:disabled) { background: var(--press); }
-.icon-btn.sm { width: 24px; height: 24px; border-radius: var(--r-xs); }
-.icon-btn.on { background: var(--accent-tint); color: var(--accent-text); border-color: transparent; }
+.icon-btn.sm { width: 24px; height: 24px; border-radius: 6px; }
+.icon-btn.on { background: var(--accent-tint); color: var(--ink); border-color: transparent; }
 
 /* ------------------------------------------------------------------------ */
 /* Fields                                                                   */
@@ -170,16 +171,16 @@ select:focus-visible { outline: none; }
   width: 100%;
   height: var(--h-control);
   padding: 0 10px;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: var(--r-sm);
   background: var(--well);
   color: var(--ink);
   font-size: var(--t-body);
-  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), background var(--dur) var(--ease);
 }
 .field::placeholder, textarea::placeholder { color: var(--faint); opacity: 1; }
-.field:hover { border-color: var(--line-strong); }
-.field:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-tint); }
+.field:hover { background: color-mix(in srgb, var(--ink) 4%, var(--well)); }
+.field:focus { border-color: var(--focus); box-shadow: 0 0 0 2px var(--accent-tint); }
 .field.mono { font-family: var(--font-mono); font-size: var(--t-code); }
 .field.invalid { border-color: var(--bad); box-shadow: 0 0 0 2px var(--bad-tint); }
 
@@ -191,7 +192,7 @@ select:focus-visible { outline: none; }
   background: transparent;
 }
 .field.inline:hover { background: var(--hover); border-color: transparent; }
-.field.inline:focus { background: var(--well); border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-tint); }
+.field.inline:focus { background: var(--well); border-color: var(--focus); box-shadow: 0 0 0 2px var(--accent-tint); }
 
 textarea.field { height: auto; padding: var(--s-2) 10px; resize: none; line-height: 1.55; }
 
@@ -264,12 +265,18 @@ input[type="checkbox"].switch:checked::after { transform: translateX(12px); }
 .led.ok { background: var(--ok); }
 .led.warn { background: var(--warn); }
 .led.bad { background: var(--bad); }
-.led.live { background: var(--accent); }
+.led.live { background: var(--accent); box-shadow: 0 0 0 1px var(--accent-line); }
 .led.off { background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint); }
 
+/* A method is a small mark in its own colour, on a wash of that colour. */
 .method {
   display: inline-block;
-  font: 600 10.5px / 1 var(--font-mono);
+  padding: 3px 5px;
+  border-radius: var(--r-xs);
+  background: color-mix(in srgb, currentColor 13%, transparent);
+  font: 600 10px / 1 var(--font-mono);
+  letter-spacing: 0.02em;
+  text-align: center;
   text-transform: uppercase;
   color: var(--m-other);
   white-space: nowrap;
@@ -280,21 +287,15 @@ input[type="checkbox"].switch:checked::after { transform: translateX(12px); }
 .method[data-method="PATCH"] { color: var(--m-patch); }
 .method[data-method="DELETE"] { color: var(--m-delete); }
 
-/* The same as a stamp — for the one place the method is the headline. */
+/* Larger, for the one place the method is the headline: the URL bar. */
 .method.tag {
   display: inline-flex;
   align-items: center;
-  height: 20px;
-  padding: 0 7px;
-  border-radius: var(--r-xs);
-  color: var(--on-method);
-  background: var(--m-other);
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--r-full);
+  font-size: 11.5px;
 }
-.method.tag[data-method="GET"] { background: var(--m-get); }
-.method.tag[data-method="POST"] { background: var(--m-post); }
-.method.tag[data-method="PUT"] { background: var(--m-put); }
-.method.tag[data-method="PATCH"] { background: var(--m-patch); }
-.method.tag[data-method="DELETE"] { background: var(--m-delete); }
 
 /* A {{variable}} inside mono text. */
 .var {
@@ -317,17 +318,25 @@ input[type="checkbox"].switch:checked::after { transform: translateX(12px); }
   gap: 5px;
   height: 20px;
   padding: 0 7px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-xs);
-  background: var(--bg-2);
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--well);
   font: 500 var(--t-meta) / 1 var(--font-mono);
   color: var(--ink-2);
   white-space: nowrap;
 }
-.chip.accent { color: var(--accent-text); border-color: var(--accent-line); background: var(--accent-tint); }
-.chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); background: var(--ok-tint); }
-.chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: var(--warn-tint); }
-.chip.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, transparent); background: var(--bad-tint); }
+.chip.accent { color: var(--ink); background: var(--accent-tint); }
+.chip.ok { color: var(--ok); background: var(--ok-tint); }
+.chip.warn { color: var(--warn); background: var(--warn-tint); }
+.chip.bad { color: var(--bad); background: var(--bad-tint); }
+
+/* One of the pieces lying on the bench. */
+.panel {
+  background: var(--bg-1);
+  border-radius: var(--r-panel);
+  box-shadow: var(--shadow-panel);
+  overflow: hidden;
+}
 
 .spacer { flex: 1; }
 

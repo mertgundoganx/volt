@@ -196,6 +196,7 @@ mod tests {
             digest: None,
             ntlm: None,
             aws: None,
+            oauth1: None,
             api_key_header: None,
             body,
             missing: Vec::new(),

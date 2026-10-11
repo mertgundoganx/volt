@@ -32,14 +32,13 @@ function when(at: number) {
 </script>
 
 <template>
-  <UiDialog title="Monitors" eyebrow="While volt is open" :width="720" @close="emit('close')">
+  <UiDialog :title="t('Monitors')" :eyebrow="t('While volt is open')" :width="720" @close="emit('close')">
     <p class="note">
       <UiIcon name="info" :size="14" />
       <span>
-        Send a request on a schedule and hear about it when it fails. It runs while
-        volt is open and nowhere else — there is no server here to keep watching
-        after you close the app, and saying otherwise would be worse than not
-        offering it. Every run is recorded in History like any other send.
+        {{ t('Send a request on a schedule and hear about it when it fails.') }}
+        {{ t('It runs while volt is open and nowhere else — there is no server here to keep watching after you close the app, and saying otherwise would be worse than not offering it.') }}
+        {{ t('Every run is recorded in History like any other send.') }}
       </span>
     </p>
 
@@ -47,48 +46,48 @@ function when(at: number) {
       <UiSelect
         v-model="requestId"
         :options="choices.map((c) => ({ value: c.id, label: c.name }))"
-        label="Request to watch"
+        :label="t('Request to watch')"
         class="pick"
       />
       <label class="every">
-        <span class="silk">Every</span>
-        <input v-model.number="every" class="field mono num" type="number" min="10" step="10" aria-label="Seconds between runs">
-        <span class="silk">sec</span>
+        <span class="silk">{{ t('Every') }}</span>
+        <input v-model.number="every" class="field mono num" type="number" min="10" step="10" :aria-label="t('Seconds between runs')">
+        <span class="silk">{{ t('sec') }}</span>
       </label>
       <span class="spacer" />
-      <button type="button" class="btn btn-primary btn-sm" :disabled="!requestId" @click="add">Watch it</button>
+      <button type="button" class="btn btn-primary btn-sm" :disabled="!requestId" @click="add">{{ t('Watch it') }}</button>
     </div>
 
     <ul v-if="mine.length" class="monitors">
       <li v-for="monitor in mine" :key="monitor.id">
         <span class="led" :class="runsOf(monitor.id)[0] ? (runsOf(monitor.id)[0]!.error || (runsOf(monitor.id)[0]!.status ?? 0) >= 400 ? 'bad' : 'ok') : 'off'" />
         <span class="name">{{ monitor.name }}</span>
-        <span class="silk">every {{ monitor.everySeconds }}s</span>
+        <span class="silk">{{ t('every {n}s', { n: monitor.everySeconds }) }}</span>
         <span class="last">
           <template v-if="runsOf(monitor.id)[0]">
             {{ runsOf(monitor.id)[0]!.error ?? `${runsOf(monitor.id)[0]!.status} · ${runsOf(monitor.id)[0]!.durationMs} ms` }}
-            <span class="silk">at {{ when(runsOf(monitor.id)[0]!.at) }}</span>
+            <span class="silk">{{ t('at {time}', { time: when(runsOf(monitor.id)[0]!.at) }) }}</span>
           </template>
-          <span v-else class="quiet">not run yet</span>
+          <span v-else class="quiet">{{ t('not run yet') }}</span>
         </span>
         <button
           type="button"
           class="btn btn-quiet btn-sm"
           @click="store.setMonitorPaused(monitor.id, !monitor.paused)"
         >
-          {{ monitor.paused ? 'Resume' : 'Pause' }}
+          {{ monitor.paused ? t('Resume') : t('Pause') }}
         </button>
-        <button type="button" class="icon-btn quiet sm" :aria-label="`Remove ${monitor.name}`" title="Remove" @click="store.removeMonitor(monitor.id)">
+        <button type="button" class="icon-btn quiet sm" :aria-label="t('Remove {name}', { name: monitor.name })" :title="t('Remove')" @click="store.removeMonitor(monitor.id)">
           <UiIcon name="x" :size="14" />
         </button>
       </li>
     </ul>
-    <p v-else class="empty">Nothing is being watched in this collection.</p>
+    <p v-else class="empty">{{ t('Nothing is being watched in this collection.') }}</p>
 
     <template #footer>
-      <span class="silk">{{ mine.length }} in this collection</span>
+      <span class="silk">{{ t('{n} in this collection', { n: mine.length }) }}</span>
       <span class="spacer" />
-      <button type="button" class="btn btn-primary" @click="emit('close')">Done</button>
+      <button type="button" class="btn btn-primary" @click="emit('close')">{{ t('Done') }}</button>
     </template>
   </UiDialog>
 </template>

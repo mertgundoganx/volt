@@ -1,4 +1,6 @@
 //! Import from Postman (Collection v2.0 / v2.1) and Insomnia (v4 JSON, v5 YAML).
+//! OpenAPI and HAR are read by modules of their own (`openapi.rs`, `har.rs`)
+//! and come through the same `parse`, so they get the same clean-up.
 //!
 //! Two stages. `parse` turns an export into an in-memory collection without
 //! touching the disk, which is what the tests exercise. `write` lays that out
@@ -29,18 +31,24 @@ use crate::error::{Error, Result};
 use crate::scripts;
 use crate::openapi;
 use crate::model::{
-    ApiKeyLocation, Auth, Body, CollectionMeta, EnvVar, Environment, FolderMeta, FormField, KeyValue, Kind, Request,
+    ApiKeyLocation, Auth, Body, CollectionMeta, EnvVar, Environment, FolderMeta, FormField, KeyValue, Kind,
+    OAuth1Signature, Request,
 };
 
 // ---------------------------------------------------------------------------
 // In-memory result
 // ---------------------------------------------------------------------------
 
+// A folder is a name and four short lists. Boxing it as well would trade a
+// couple of hundred bytes, in a tree that lives for one import, for a second
+// pointer to chase on every node.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum ImportNode {
     /// A folder carries what it passes down, now that `folder.yaml` can hold
-    /// headers and auth. Nothing is flattened onto the requests inside.
-    Folder { name: String, auth: Auth, headers: Vec<KeyValue>, children: Vec<ImportNode> },
+    /// headers, auth and variables. Nothing is flattened onto the requests
+    /// inside.
+    Folder { name: String, auth: Auth, headers: Vec<KeyValue>, vars: Vec<KeyValue>, children: Vec<ImportNode> },
     /// Boxed: a `Request` dwarfs a folder, and an import tree is mostly folders.
     Request(Box<Request>),
 }
@@ -51,6 +59,8 @@ pub struct Imported {
     pub name: String,
     pub headers: Vec<KeyValue>,
     pub auth: Auth,
+    /// Variables the collection itself defines, for the tools that have them.
+    pub vars: Vec<KeyValue>,
     pub nodes: Vec<ImportNode>,
     pub environments: Vec<Environment>,
     pub warnings: Warnings,
@@ -160,9 +170,25 @@ pub fn import_environment(root: &Path, source: &Path) -> Result<Option<String>> 
 }
 
 pub fn import_file(source: &Path, into: &Path) -> Result<Outcome> {
-    let text = fs::read_to_string(source)
-        .map_err(|e| Error::io(source.to_string_lossy(), e))?;
-    let imported = parse(&text)?;
+    // Bruno is the one source that is a folder rather than a file: either the
+    // folder itself or the `bruno.json` inside it names the collection.
+    let imported = match crate::bruno::collection_dir(source) {
+        Some(dir) => {
+            let mut imported = crate::bruno::read(&dir)?;
+            finish(&mut imported);
+            imported
+        }
+        None if source.is_dir() => {
+            return Err(Error::Invalid(format!(
+                "`{}` is a folder, and the only folder volt imports is a Bruno collection — one with a bruno.json in it",
+                source.to_string_lossy()
+            )));
+        }
+        None => {
+            let text = fs::read_to_string(source).map_err(|e| Error::io(source.to_string_lossy(), e))?;
+            parse(&text)?
+        }
+    };
     let root = write(into, &imported)?;
     let collection = collection::load(&root)?;
 
@@ -212,6 +238,8 @@ pub fn parse(text: &str) -> Result<Imported> {
 
     let mut imported = if openapi::looks_like(&value) {
         openapi::parse(&value)
+    } else if crate::har::looks_like(&value) {
+        crate::har::parse(&value)
     } else if value.get("info").is_some() && value.get("item").is_some() {
         postman(&value)
     } else if value.get("requests").is_some() && value.get("order").is_some() {
@@ -228,13 +256,18 @@ pub fn parse(text: &str) -> Result<Imported> {
                 "`{kind}` is not a request collection; export the collection itself from Insomnia"
             )));
         }
+    } else if value.get("type").and_then(Value::as_str) == Some("collection") && value.get("version").is_some() {
+        // A `bruno.json` read on its own, without the folder it describes.
+        return Err(Error::Invalid(
+            "this is the bruno.json of a Bruno collection; import the folder it is in, which holds the requests".into(),
+        ));
     } else if value.get("_postman_variable_scope").is_some() {
         return Err(Error::Invalid(
             "this is a Postman environment, not a collection; open a collection and drop it there".into(),
         ));
     } else {
         return Err(Error::Invalid(
-            "this is not a Postman (v2.0/v2.1), Insomnia (v4/v5) or OpenAPI/Swagger file".into(),
+            "this is not a Postman (v2.0/v2.1), Insomnia (v4/v5), OpenAPI/Swagger or HAR file".into(),
         ));
     };
 
@@ -327,7 +360,7 @@ impl AuthSpec {
 }
 
 /// Pick a body type from an explicit hint, the Content-Type, or the content.
-fn text_body(content: String, hint: &str, headers: &[KeyValue]) -> Body {
+pub(crate) fn text_body(content: String, hint: &str, headers: &[KeyValue]) -> Body {
     let content_type = headers
         .iter()
         .find(|h| h.enabled && h.name.eq_ignore_ascii_case("content-type"))
@@ -382,7 +415,7 @@ fn postman(v: &Value) -> Imported {
         vec![Environment { name: "local".into(), vars }]
     };
 
-    Imported { format, name, headers: Vec::new(), auth, nodes, environments, warnings: w }
+    Imported { format, name, headers: Vec::new(), auth, vars: Vec::new(), nodes, environments, warnings: w }
 }
 
 fn postman_items(items: &[Value], w: &mut Warnings) -> Vec<ImportNode> {
@@ -394,7 +427,7 @@ fn postman_items(items: &[Value], w: &mut Warnings) -> Vec<ImportNode> {
             postman_scripts(item, &name, w);
             let auth = postman_auth(&item["auth"], &name, w).into_auth();
             let children = postman_items(children, w);
-            out.push(ImportNode::Folder { name, auth, headers: Vec::new(), children });
+            out.push(ImportNode::Folder { name, auth, headers: Vec::new(), vars: Vec::new(), children });
         } else if let Some(request) = item.get("request") {
             out.push(ImportNode::Request(Box::new(postman_request(item, request, name, w))));
         }
@@ -488,11 +521,42 @@ fn postman_auth(v: &Value, subject: &str, w: &mut Warnings) -> AuthSpec {
             service: field("service"),
             session_token: field("sessionToken"),
         }),
+        "oauth1" => {
+            // Postman also offers the parameters in the query or the body;
+            // volt always uses the header, which every provider accepts.
+            if field("addParamsToHeader") == "false" {
+                w.add("OAuth 1.0 parameters are sent in the Authorization header, not in the query or the body", subject);
+            }
+            oauth1(
+                &field("signatureMethod"),
+                [field("consumerKey"), field("consumerSecret"), field("token"), field("tokenSecret")],
+                subject,
+                w,
+            )
+        }
         other => {
             w.add(format!("`{other}` auth is not supported yet, so these use the auth above them instead"), subject);
             AuthSpec::Inherit
         }
     }
+}
+
+/// OAuth 1.0a from either tool's export. A signature method volt does not
+/// compute is reported rather than swapped for one it does: a request signed
+/// the wrong way fails at the server with nothing to say why.
+fn oauth1(method: &str, [consumer_key, consumer_secret, token, token_secret]: [String; 4], subject: &str, w: &mut Warnings) -> AuthSpec {
+    let signature_method = match method.trim().to_ascii_uppercase().as_str() {
+        "" | "HMAC-SHA1" => OAuth1Signature::HmacSha1,
+        "HMAC-SHA256" => OAuth1Signature::HmacSha256,
+        other => {
+            w.add(
+                format!("OAuth 1.0 signed with {other} is not supported (HMAC-SHA1 and HMAC-SHA256 are), so these use the auth above them instead"),
+                subject,
+            );
+            return AuthSpec::Inherit;
+        }
+    };
+    AuthSpec::Set(Auth::OAuth1 { consumer_key, consumer_secret, token, token_secret, signature_method })
 }
 
 fn postman_request(item: &Value, req: &Value, name: String, w: &mut Warnings) -> Request {
@@ -776,6 +840,7 @@ fn insomnia_v4(v: &Value) -> Result<Imported> {
         name,
         headers: Vec::new(),
         auth: Auth::None,
+        vars: Vec::new(),
         nodes,
         environments,
         warnings: w,
@@ -830,6 +895,7 @@ fn v4_children<'a>(
                     name,
                     auth: own_auth.into_auth(),
                     headers: own_headers,
+                    vars: Vec::new(),
                     children,
                 });
             }
@@ -856,7 +922,7 @@ fn insomnia_v5(v: &Value) -> Imported {
         .collect();
     let environments = insomnia_environments(base, subs);
 
-    Imported { format: "Insomnia v5", name, headers: Vec::new(), auth: Auth::None, nodes, environments, warnings: w }
+    Imported { format: "Insomnia v5", name, headers: Vec::new(), auth: Auth::None, vars: Vec::new(), nodes, environments, warnings: w }
 }
 
 fn v5_items(items: &[Value], auth: &AuthSpec, headers: &[KeyValue], w: &mut Warnings) -> Vec<ImportNode> {
@@ -873,6 +939,7 @@ fn v5_items(items: &[Value], auth: &AuthSpec, headers: &[KeyValue], w: &mut Warn
                 name,
                 auth: own_auth.into_auth(),
                 headers: own_headers,
+                vars: Vec::new(),
                 children,
             });
             continue;
@@ -972,6 +1039,15 @@ fn insomnia_auth(v: &Value, subject: &str, w: &mut Warnings) -> (AuthSpec, Optio
                 service: field("service"),
                 session_token: field("sessionToken"),
             }),
+            None,
+        ),
+        "oauth1" => (
+            oauth1(
+                &field("signatureMethod"),
+                [field("consumerKey"), field("consumerSecret"), field("tokenKey"), field("tokenSecret")],
+                subject,
+                w,
+            ),
             None,
         ),
         other => {
@@ -1248,6 +1324,7 @@ fn move_literal_secrets(imported: &mut Imported) {
 
     scrub_auth(&mut imported.auth, &mut names);
     scrub_pairs(&mut imported.headers, &mut names);
+    scrub_vars(&mut imported.vars, &mut names);
     scrub_nodes(&mut imported.nodes, &mut names);
 
     // An existing variable that turned out to hold a credential becomes secret.
@@ -1278,14 +1355,37 @@ fn scrub_nodes(nodes: &mut [ImportNode], names: &mut SecretNames) {
     for node in nodes {
         match node {
             // A folder holds credentials now, so it is scrubbed like a request.
-            ImportNode::Folder { auth, headers, children, .. } => {
+            ImportNode::Folder { auth, headers, vars, children, .. } => {
                 scrub_auth(auth, names);
                 scrub_pairs(headers, names);
+                scrub_vars(vars, names);
                 scrub_nodes(children, names);
             }
             ImportNode::Request(request) => scrub_request(request, names),
         }
     }
+}
+
+/// A collection's or a folder's own variables are written into
+/// `collection.yaml` and `folder.yaml`, which are committed — so one named
+/// like a credential moves to the environments, where a secret can live.
+///
+/// It keeps its name when the name is free, and then the variable itself goes:
+/// an environment's value is found first anyway, so every `{{name}}` reads
+/// as it did. When the name is taken, the variable stays and points at the
+/// secret that was made for it.
+fn scrub_vars(vars: &mut Vec<KeyValue>, names: &mut SecretNames) {
+    vars.retain_mut(|var| {
+        if !var.enabled || !looks_secret(&var.name) || !is_literal(&var.value) {
+            return true;
+        }
+        let name = names.name_for(&var.name, &var.value);
+        if name == var.name {
+            return false;
+        }
+        var.value = placeholder(&name);
+        true
+    });
 }
 
 fn scrub_request(request: &mut Request, names: &mut SecretNames) {
@@ -1328,6 +1428,16 @@ fn scrub_auth(auth: &mut Auth, names: &mut SecretNames) {
         // The secret key is the credential; the key id is an identifier, and a
         // session token is one too short-lived to be worth a variable.
         Auth::AwsSigV4 { secret, .. } if is_literal(secret) => *secret = take(names, "awsSecret", secret),
+        // Both secrets are credentials, and either may be there without the
+        // other; the consumer key and the token are the names they go under.
+        Auth::OAuth1 { consumer_secret, token_secret, .. } => {
+            if is_literal(consumer_secret) {
+                *consumer_secret = take(names, "consumerSecret", consumer_secret);
+            }
+            if is_literal(token_secret) {
+                *token_secret = take(names, "tokenSecret", token_secret);
+            }
+        }
         _ => {}
     }
 }
@@ -1451,7 +1561,7 @@ fn write_contents(root: &Path, imported: &Imported) -> Result<()> {
         version: 1,
         headers: imported.headers.clone(),
         auth: imported.auth.clone(),
-        vars: Vec::new(),
+        vars: imported.vars.clone(),
     };
     collection::write_yaml(&root.join(COLLECTION_FILE), &meta)?;
     collection::ensure_gitignore(root)?;
@@ -1475,20 +1585,20 @@ fn write_nodes(dir: &Path, root: &Path, nodes: &[ImportNode]) -> Result<()> {
     for (index, node) in nodes.iter().enumerate() {
         let seq = index as u32 + 1;
         match node {
-            ImportNode::Folder { name, auth, headers, children } => {
+            ImportNode::Folder { name, auth, headers, vars, children } => {
                 let dir_name = claim(&mut taken, &collection::folder_dir_name(name), "");
                 let path = dir.join(&dir_name);
                 fs::create_dir(&path).map_err(|e| Error::io(path.to_string_lossy(), e))?;
 
                 let renamed = dir_name != *name;
-                let carries = !matches!(auth, Auth::Inherit) || !headers.is_empty();
+                let carries = !matches!(auth, Auth::Inherit) || !headers.is_empty() || !vars.is_empty();
                 if renamed || seq != 1 || carries {
                     let meta = FolderMeta {
                         name: renamed.then(|| name.clone()),
                         seq,
                         headers: headers.clone(),
                         auth: auth.clone(),
-                        vars: Vec::new(),
+                        vars: vars.clone(),
                     };
                     collection::write_yaml(&path.join(FOLDER_FILE), &meta)?;
                 }
@@ -2245,5 +2355,75 @@ environments:
         // The request inside the folder still comes across.
         let outer = folder(&imported.nodes, "Outer");
         assert_eq!(request(outer, "Ping").method, "GET");
+    }
+
+    #[test]
+    fn postman_oauth1_becomes_oauth1_with_its_secrets_moved_out() {
+        let export = r#"{
+          "info": { "name": "Signed", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json" },
+          "item": [
+            { "name": "Timeline", "request": { "method": "GET", "url": "https://api.test/timeline",
+              "auth": { "type": "oauth1", "oauth1": [
+                { "key": "consumerKey", "value": "ck-123" }, { "key": "consumerSecret", "value": "cs-very-secret" },
+                { "key": "token", "value": "tok-456" }, { "key": "tokenSecret", "value": "ts-also-secret" },
+                { "key": "signatureMethod", "value": "HMAC-SHA256" }, { "key": "version", "value": "1.0" },
+                { "key": "addParamsToHeader", "value": false, "type": "boolean" }] } } },
+            { "name": "Two-legged", "request": { "method": "GET", "url": "https://api.test/public",
+              "auth": { "type": "oauth1", "oauth1": { "consumerKey": "ck-123", "consumerSecret": "cs-very-secret" } } } },
+            { "name": "With a key file", "request": { "method": "GET", "url": "https://api.test/rsa",
+              "auth": { "type": "oauth1", "oauth1": [
+                { "key": "consumerKey", "value": "ck-123" }, { "key": "signatureMethod", "value": "RSA-SHA1" }] } } }
+          ]
+        }"#;
+        let imported = parse(export).unwrap();
+        let env = &imported.environments[0];
+
+        let Auth::OAuth1 { consumer_key, consumer_secret, token, token_secret, signature_method } =
+            &request(&imported.nodes, "Timeline").auth
+        else {
+            panic!("{:?}", request(&imported.nodes, "Timeline").auth)
+        };
+        assert_eq!((consumer_key.as_str(), token.as_str()), ("ck-123", "tok-456"), "the names they go under stay readable");
+        assert_eq!(consumer_secret, "{{consumerSecret}}");
+        assert_eq!(token_secret, "{{tokenSecret}}");
+        assert_eq!(*signature_method, OAuth1Signature::HmacSha256);
+        assert_eq!(var(env, "consumerSecret").value, "cs-very-secret");
+        assert!(var(env, "consumerSecret").secret && var(env, "tokenSecret").secret);
+
+        // v2.0's object form, no token, and the default method.
+        let Auth::OAuth1 { consumer_secret, token, signature_method, .. } = &request(&imported.nodes, "Two-legged").auth
+        else {
+            panic!()
+        };
+        assert_eq!(consumer_secret, "{{consumerSecret}}", "the same secret reuses the same variable");
+        assert!(token.is_empty());
+        assert_eq!(*signature_method, OAuth1Signature::HmacSha1);
+
+        // A method volt cannot compute is said, not swapped for one it can.
+        assert!(matches!(request(&imported.nodes, "With a key file").auth, Auth::Inherit));
+        assert!(imported.warnings.mentions("OAuth 1.0 signed with RSA-SHA1 is not supported"), "{:?}", imported.warnings.render());
+        assert!(imported.warnings.mentions("sent in the Authorization header"), "{:?}", imported.warnings.render());
+
+        // Nothing secret is left in what will be written as YAML.
+        let written = serde_yaml_ng::to_string(&**match &imported.nodes[0] { ImportNode::Request(r) => r, _ => panic!() }).unwrap();
+        assert!(!written.contains("cs-very-secret") && !written.contains("ts-also-secret"), "{written}");
+    }
+
+    #[test]
+    fn insomnia_oauth1_is_read_from_its_own_field_names() {
+        let export = r#"{ "_type": "export", "__export_format": 4, "resources": [
+            { "_id": "wrk_1", "_type": "workspace", "name": "Signed" },
+            { "_id": "req_1", "_type": "request", "parentId": "wrk_1", "name": "Timeline", "method": "GET",
+              "url": "https://api.test/timeline",
+              "authentication": { "type": "oauth1", "consumerKey": "ck", "consumerSecret": "cs-secret-1",
+                                  "tokenKey": "tok", "tokenSecret": "ts-secret-2", "signatureMethod": "HMAC-SHA1" } }
+        ] }"#;
+        let imported = parse(export).unwrap();
+        let Auth::OAuth1 { consumer_key, consumer_secret, token, token_secret, .. } = &request(&imported.nodes, "Timeline").auth
+        else {
+            panic!("{:?}", request(&imported.nodes, "Timeline").auth)
+        };
+        assert_eq!((consumer_key.as_str(), token.as_str()), ("ck", "tok"));
+        assert_eq!((consumer_secret.as_str(), token_secret.as_str()), ("{{consumerSecret}}", "{{tokenSecret}}"));
     }
 }

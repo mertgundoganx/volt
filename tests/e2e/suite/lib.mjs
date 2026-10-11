@@ -88,6 +88,11 @@ export async function session(args = []) {
       const up = [...keysDown].reverse().map((k) => ({ type: 'keyUp', value: k }))
       await wd('POST', `/session/${id}/actions`, { actions: [{ type: 'key', id: 'kb', actions: [...down, ...up] }] })
     },
+    /** The window's size, for what depends on how much room there is. */
+    async resize(width, height) {
+      await wd('POST', `/session/${id}/window/rect`, { width, height })
+      await sleep(300)
+    },
     async screenshot(path) {
       const b64 = await wd('GET', `/session/${id}/screenshot`)
       const { writeFileSync } = await import('node:fs')
@@ -96,6 +101,18 @@ export async function session(args = []) {
     close: () => wd('DELETE', `/session/${id}`).catch(() => {}),
   }
   return api
+}
+
+/**
+ * The suites select controls by their English labels, so the interface is
+ * put in English for the run and put back afterwards.
+ */
+export async function english(app) {
+  const was = await app.runAsync(`const was = store.language; if (was !== 'en') await store.saveLanguage('en'); return was`)
+  await sleep(300)
+  return async () => {
+    if (was !== 'en') await app.runAsync(`await store.saveLanguage(${JSON.stringify(was)}); return 1`).catch(() => {})
+  }
 }
 
 export const KEY = { enter: '\uE007', esc: '\uE00C', ctrl: '\uE009', shift: '\uE008', tab: '\uE004', backspace: '\uE003' }

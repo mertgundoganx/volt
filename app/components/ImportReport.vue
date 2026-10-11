@@ -11,24 +11,23 @@ const placeholderExample = '{{name}}'
 </script>
 
 <template>
-  <UiDialog :title="`Imported from ${report.format}`" eyebrow="Import complete" :width="620" @close="close">
+  <UiDialog :title="t('Imported from {format}', { format: report.format })" :eyebrow="t('Import complete')" :width="620" @close="close">
     <p class="path mono selectable" :title="report.path">
       <UiIcon name="folder" :size="14" />{{ report.path }}
     </p>
 
     <div class="readout">
-      <UiMeasure label="Requests" :value="report.requests" />
-      <UiMeasure label="Folders" :value="report.folders" />
-      <UiMeasure label="Environments" :value="report.environments.length" />
-      <UiMeasure label="Secrets" :value="report.secrets.length" />
+      <UiMeasure :label="t('Requests')" :value="report.requests" />
+      <UiMeasure :label="t('Folders')" :value="report.folders" />
+      <UiMeasure :label="t('Environments')" :value="report.environments.length" />
+      <UiMeasure :label="t('Secrets')" :value="report.secrets.length" />
     </div>
 
     <section v-if="report.secrets.length" class="block">
-      <h3 class="silk">Kept out of the YAML</h3>
+      <h3 class="silk">{{ t('Kept out of the YAML') }}</h3>
       <p>
-        These values went to gitignored <code>.env.&lt;environment&gt;</code> files. That includes
-        credentials the export had in plain text; the requests now read
-        <code>{{ placeholderExample }}</code> in their place.
+        {{ t('These values went to gitignored') }} <code>.env.&lt;environment&gt;</code> {{ t('files. That includes credentials the export had in plain text; the requests now read') }}
+        <code>{{ placeholderExample }}</code> {{ t('in their place.') }}
       </p>
       <div class="chips">
         <span v-for="name in report.secrets" :key="name" class="chip"><UiIcon name="lock" :size="12" />{{ name }}</span>
@@ -36,7 +35,7 @@ const placeholderExample = '{{name}}'
     </section>
 
     <section v-if="report.warnings.length" class="block">
-      <h3 class="silk">Worth checking</h3>
+      <h3 class="silk">{{ t('Worth checking') }}</h3>
       <ul class="warnings">
         <li v-for="warning in report.warnings" :key="warning">
           <span class="led warn" />
@@ -45,12 +44,12 @@ const placeholderExample = '{{name}}'
       </ul>
     </section>
     <section v-else class="block">
-      <p class="clean"><UiIcon name="check" :size="14" />Everything in the export had a direct equivalent.</p>
+      <p class="clean"><UiIcon name="check" :size="14" />{{ t('Everything in the export had a direct equivalent.') }}</p>
     </section>
 
     <template #footer>
       <span class="spacer" />
-      <button type="button" class="btn btn-primary" autofocus @click="close">Done</button>
+      <button type="button" class="btn btn-primary" autofocus @click="close">{{ t('Done') }}</button>
     </template>
   </UiDialog>
 </template>

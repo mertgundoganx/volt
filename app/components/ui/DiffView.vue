@@ -8,13 +8,13 @@ const diff = computed(() => diffLines(props.before, props.after))
 
 <template>
   <div class="ui-diff mono">
-    <p v-if="diff.tooLarge" class="note">These bodies are too long to compare line by line.</p>
-    <p v-else-if="!diff.changed" class="note">Same body as the previous send.</p>
+    <p v-if="diff.tooLarge" class="note">{{ t('These bodies are too long to compare line by line.') }}</p>
+    <p v-else-if="!diff.changed" class="note">{{ t('Same body as the previous send.') }}</p>
     <template v-else>
       <div v-for="(row, i) in diff.rows" :key="i" class="row" :class="row.kind">
         <template v-if="row.kind === 'skip'">
           <span class="ln" /><span class="ln" />
-          <span class="mark" /><span class="src fold">{{ row.count }} unchanged {{ row.count === 1 ? 'line' : 'lines' }}</span>
+          <span class="mark" /><span class="src fold">{{ row.count === 1 ? t('1 unchanged line') : t('{n} unchanged lines', { n: row.count ?? 0 }) }}</span>
         </template>
         <template v-else>
           <span class="ln">{{ row.before ?? '' }}</span>

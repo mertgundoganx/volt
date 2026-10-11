@@ -83,6 +83,11 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # Every sentence the interface says has to exist in every language, or
+      # one of them quietly ships it in English.
+      - name: Languages
+        run: pnpm i18n
+
       # The SPA Tauri ships has to actually build.
       - name: Build the SPA
         run: pnpm generate

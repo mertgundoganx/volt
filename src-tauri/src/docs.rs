@@ -245,6 +245,11 @@ fn describe_auth(auth: &Auth) -> Option<String> {
             escape(service),
             escape(region)
         )),
+        Auth::OAuth1 { consumer_key, signature_method, .. } => Some(format!(
+            "OAuth 1.0a, signed with {} as consumer <code>{}</code>.",
+            signature_method.name(),
+            escape(&masked(consumer_key))
+        )),
         Auth::ApiKey { key, location, .. } => Some(format!(
             "API key <code>{}</code>, sent in the {}.",
             escape(key),

@@ -16,11 +16,11 @@ const saving = ref(false)
 const folder = ref<FolderMeta | null>(null)
 
 const authKinds: SegmentOption<Auth['type']>[] = [
-  { value: 'inherit', label: 'Inherit' },
-  { value: 'none', label: 'None' },
+  { value: 'inherit', label: t('Inherit') },
+  { value: 'none', label: t('None') },
   { value: 'bearer', label: 'Bearer' },
   { value: 'basic', label: 'Basic' },
-  { value: 'apikey', label: 'API key' },
+  { value: 'apikey', label: t('API key') },
 ]
 
 onMounted(async () => {
@@ -54,6 +54,7 @@ const authKind = computed({
       digest: { type: 'digest', username: '', password: '' },
       ntlm: { type: 'ntlm', username: '', password: '', domain: '' },
       awssigv4: { type: 'awssigv4', key_id: '', secret: '', region: 'us-east-1', service: '', session_token: '' },
+      oauth1: { type: 'oauth1', consumer_key: '', consumer_secret: '', token: '', token_secret: '', signature_method: 'HMAC-SHA1' },
     }
     auth.value = auth.value.type === type ? auth.value : blank[type]
   },
@@ -85,48 +86,48 @@ async function save() {
 </script>
 
 <template>
-  <UiDialog :title="props.title" :eyebrow="props.folderId ? 'Folder' : 'Collection'" :width="760" @close="emit('close')">
+  <UiDialog :title="props.title" :eyebrow="props.folderId ? t('Folder') : t('Collection')" :width="760" @close="emit('close')">
     <p class="note">
       <UiIcon name="info" :size="14" />
       <span>
-        Everything inside gets these. A request sets the same header name itself and its own
-        wins; auth here is used by anything set to inherit.
+        {{ t('Everything inside gets these.') }}
+        {{ t('A request sets the same header name itself and its own wins; auth here is used by anything set to inherit.') }}
       </span>
     </p>
 
-    <p v-if="loading" class="empty">Reading…</p>
+    <p v-if="loading" class="empty">{{ t('Reading…') }}</p>
     <template v-else>
       <section>
-        <h3 class="silk">Headers</h3>
-        <KeyValueEditor v-model="headers" name-label="Header" add-label="Add header" :known="known" />
+        <h3 class="silk">{{ t('Headers') }}</h3>
+        <KeyValueEditor v-model="headers" :name-label="t('Header')" :add-label="t('Add header')" :known="known" />
       </section>
 
       <section>
-        <h3 class="silk">Variables</h3>
+        <h3 class="silk">{{ t('Variables') }}</h3>
         <p class="hint">
-          <span>Plain values, committed with the collection. An environment overrides them; secrets belong there, not here.</span>
+          <span>{{ t('Plain values, committed with the collection. An environment overrides them; secrets belong there, not here.') }}</span>
         </p>
-        <KeyValueEditor v-model="vars" name-label="Variable" add-label="Add variable" :known="known" />
+        <KeyValueEditor v-model="vars" :name-label="t('Variable')" :add-label="t('Add variable')" :known="known" />
       </section>
 
       <section>
-        <h3 class="silk">Auth</h3>
-        <UiSegmented v-model="authKind" :options="kinds" label="Auth type" size="sm" />
+        <h3 class="silk">{{ t('Auth') }}</h3>
+        <UiSegmented v-model="authKind" :options="kinds" :label="t('Auth type')" size="sm" />
 
         <div v-if="auth.type === 'bearer'" class="auth-fields">
-          <UiVarInput v-model="auth.token" label="Token" :known="known" placeholder="{{token}}" />
+          <UiVarInput v-model="auth.token" :label="t('Token')" :known="known" placeholder="{{token}}" />
         </div>
         <div v-else-if="auth.type === 'basic'" class="auth-fields two">
-          <UiVarInput v-model="auth.username" label="Username" :known="known" />
-          <UiVarInput v-model="auth.password" label="Password" :known="known" />
+          <UiVarInput v-model="auth.username" :label="t('Username')" :known="known" />
+          <UiVarInput v-model="auth.password" :label="t('Password')" :known="known" />
         </div>
         <div v-else-if="auth.type === 'apikey'" class="auth-fields two">
-          <UiVarInput v-model="auth.key" label="Key" :known="known" placeholder="X-API-Key" />
-          <UiVarInput v-model="auth.value" label="Value" :known="known" placeholder="{{apiKey}}" />
+          <UiVarInput v-model="auth.key" :label="t('Key')" :known="known" placeholder="X-API-Key" />
+          <UiVarInput v-model="auth.value" :label="t('Value')" :known="known" placeholder="{{apiKey}}" />
           <UiSegmented
             v-model="auth.location"
-            :options="[{ value: 'header', label: 'Header' }, { value: 'query', label: 'Query string' }]"
-            label="Where the key goes"
+            :options="[{ value: 'header', label: t('Header') }, { value: 'query', label: t('Query string') }]"
+            :label="t('Where the key goes')"
             size="sm"
           />
         </div>
@@ -135,9 +136,9 @@ async function save() {
 
     <template #footer>
       <span class="spacer" />
-      <button type="button" class="btn btn-quiet" @click="emit('close')">Cancel</button>
+      <button type="button" class="btn btn-quiet" @click="emit('close')">{{ t('Cancel') }}</button>
       <button type="button" class="btn btn-primary" :disabled="saving || loading" @click="save">
-        {{ saving ? 'Saving' : 'Save' }}
+        {{ saving ? t('Saving') : t('Save') }}
       </button>
     </template>
   </UiDialog>

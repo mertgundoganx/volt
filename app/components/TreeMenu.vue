@@ -15,7 +15,7 @@ const targets = computed(() => {
   if (!current) return []
 
   const rows = [
-    { id: null as string | null, label: 'Collection root', depth: 0 },
+    { id: null as string | null, label: t('Collection root'), depth: 0 },
     ...store.folders.map((f) => ({ id: f.id as string | null, label: f.name, depth: f.depth + 1 })),
   ]
 
@@ -129,7 +129,7 @@ async function remove() {
       ref="menu"
       class="menu"
       role="menu"
-      :aria-label="`Actions for ${node.name}`"
+      :aria-label="t('Actions for {name}', { name: node.name })"
       :style="{ left: `${position.left}px`, top: `${position.top}px`, width: `${WIDTH}px` }"
       @keydown="onKey"
     >
@@ -141,42 +141,42 @@ async function remove() {
 
       <template v-if="node.kind === 'folder'">
         <button type="button" role="menuitem" class="item" @click="newRequestIn(node.id)">
-          <UiIcon name="file-plus" :size="15" /><span>New request here</span>
+          <UiIcon name="file-plus" :size="15" /><span>{{ t('New request here') }}</span>
         </button>
         <button type="button" role="menuitem" class="item" @click="newRequestFromCurl(node.id)">
-          <UiIcon name="import" :size="15" /><span>New request from cURL…</span>
+          <UiIcon name="import" :size="15" /><span>{{ t('New request from cURL…') }}</span>
         </button>
         <button type="button" role="menuitem" class="item" @click="startCreatingFolder(node.id)">
-          <UiIcon name="folder-plus" :size="15" /><span>New folder here</span>
+          <UiIcon name="folder-plus" :size="15" /><span>{{ t('New folder here') }}</span>
         </button>
         <button type="button" role="menuitem" class="item" @click="folderSettings(node.id, node.name)">
-          <UiIcon name="sliders" :size="15" /><span>Folder settings…</span><span class="hint">headers, auth, variables</span>
+          <UiIcon name="sliders" :size="15" /><span>{{ t('Folder settings…') }}</span><span class="hint">{{ t('headers, auth, variables') }}</span>
         </button>
         <button type="button" role="menuitem" class="item" @click="runFolder(node.id)">
-          <UiIcon name="check" :size="15" /><span>Run this folder…</span><span class="hint">in order, with tests</span>
+          <UiIcon name="check" :size="15" /><span>{{ t('Run this folder…') }}</span><span class="hint">{{ t('in order, with tests') }}</span>
         </button>
         <div class="sep" role="separator" />
       </template>
 
       <template v-else>
         <button type="button" role="menuitem" class="item" @click="duplicate(node.id)">
-          <UiIcon name="copy" :size="15" /><span>Duplicate</span><span class="hint">{{ modKey }} D</span>
+          <UiIcon name="copy" :size="15" /><span>{{ t('Duplicate') }}</span><span class="hint">{{ modKey }} D</span>
         </button>
         <button type="button" role="menuitem" class="item" @click="copyCurl(node.id)">
-          <UiIcon name="copy" :size="15" /><span>Copy as cURL</span><span class="hint">secrets hidden</span>
+          <UiIcon name="copy" :size="15" /><span>{{ t('Copy as cURL') }}</span><span class="hint">{{ t('secrets hidden') }}</span>
         </button>
         <button type="button" role="menuitem" class="item" @click="copyTo(node.id, node.name)">
-          <UiIcon name="move" :size="15" /><span>Copy to another collection…</span>
+          <UiIcon name="move" :size="15" /><span>{{ t('Copy to another collection…') }}</span>
         </button>
         <div class="sep" role="separator" />
       </template>
 
       <button type="button" role="menuitem" class="item" @click="startRenaming(node.id)">
-        <UiIcon name="pencil" :size="15" /><span>Rename</span><span class="hint">Double-click</span>
+        <UiIcon name="pencil" :size="15" /><span>{{ t('Rename') }}</span><span class="hint">{{ t('Double-click') }}</span>
       </button>
 
       <div class="sep" role="separator" />
-      <div class="group silk">Move to</div>
+      <div class="group silk">{{ t('Move to') }}</div>
       <div class="targets">
         <button
           v-for="row in targets"
@@ -185,19 +185,19 @@ async function remove() {
           role="menuitem"
           class="item target"
           :disabled="!!row.reason"
-          :title="row.reason === 'here' ? 'Already here' : row.reason ? 'A folder cannot go inside itself' : ''"
+          :title="row.reason === 'here' ? t('Already here') : row.reason ? t('A folder cannot go inside itself') : ''"
           :style="{ paddingLeft: `${8 + row.depth * 14}px` }"
           @click="moveTo(row.id)"
         >
           <UiIcon :name="row.id === null ? 'collection' : 'folder'" :size="14" />
           <span class="name">{{ row.label }}</span>
-          <span v-if="row.reason === 'here'" class="hint">current</span>
+          <span v-if="row.reason === 'here'" class="hint">{{ t('current') }}</span>
         </button>
       </div>
 
       <div class="sep" role="separator" />
       <button type="button" role="menuitem" class="item danger" @click="remove">
-        <UiIcon name="trash" :size="15" /><span>Delete…</span>
+        <UiIcon name="trash" :size="15" /><span>{{ t('Delete…') }}</span>
       </button>
     </div>
   </div>

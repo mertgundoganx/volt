@@ -1,6 +1,6 @@
 {
   "name": "volt",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "license": "MIT",
   "repository": "https://github.com/mertgundoganx/volt",
   "description": "Git-native, open source API client",
@@ -14,7 +14,8 @@
     "app:build": "tauri build",
     "tauri": "tauri",
     "test": "cargo test --manifest-path src-tauri/Cargo.toml",
-    "typecheck": "nuxt typecheck"
+    "typecheck": "nuxt typecheck",
+    "i18n": "node tests/i18n.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",

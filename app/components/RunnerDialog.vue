@@ -11,17 +11,17 @@ const data = ref('')
 async function chooseData() {
   const { open } = await import('@tauri-apps/plugin-dialog')
   const picked = await open({
-    title: 'Choose a data file: CSV with a header line, or a JSON array of objects',
+    title: t('Choose a data file: CSV with a header line, or a JSON array of objects'),
     multiple: false,
     directory: false,
-    filters: [{ name: 'CSV or JSON', extensions: ['csv', 'json'] }],
+    filters: [{ name: t('CSV or JSON'), extensions: ['csv', 'json'] }],
   })
   if (typeof picked === 'string') data.value = picked
 }
 const dataName = computed(() => data.value.split(/[\\/]/).pop() ?? '')
 const rows = computed(() => new Set(store.lastRun?.steps.map((step) => step.iteration).filter(Boolean)).size)
 
-const folders = computed(() => [{ value: '', label: 'The whole collection' }, ...store.folders.map((folder) => ({ value: folder.id, label: folder.name }))])
+const folders = computed(() => [{ value: '', label: t('The whole collection') }, ...store.folders.map((folder) => ({ value: folder.id, label: folder.name }))])
 
 async function run() {
   await store.runCollection(target.value || null, stopOnFailure.value, data.value || null)
@@ -34,42 +34,42 @@ function openStep(id: string) {
 </script>
 
 <template>
-  <UiDialog title="Run" eyebrow="This collection" :width="760" @close="emit('close')">
+  <UiDialog :title="t('Run')" :eyebrow="t('This collection')" :width="760" @close="emit('close')">
     <p class="note">
       <UiIcon name="info" :size="14" />
       <span>
-        Every request in order, carrying captured values forward — a login's token
-        reaches the request after it. Tests decide whether a step passed. The same
-        run happens from a terminal with <code>volt-run</code>, so CI sees what you see.
+        {{ t("Every request in order, carrying captured values forward — a login's token reaches the request after it.") }}
+        {{ t('Tests decide whether a step passed.') }}
+        {{ t('The same run happens from a terminal with') }} <code>volt-run</code>, {{ t('so CI sees what you see.') }}
       </span>
     </p>
 
     <div class="bar">
-      <UiSelect v-model="target" :options="folders" label="What to run" class="what" />
+      <UiSelect v-model="target" :options="folders" :label="t('What to run')" class="what" />
       <span class="data">
-        <button type="button" class="btn btn-sm" :title="data || 'Run once per row of a CSV or JSON file'" @click="chooseData">
-          <UiIcon name="file" :size="14" />{{ data ? dataName : 'Data file…' }}
+        <button type="button" class="btn btn-sm" :title="data || t('Run once per row of a CSV or JSON file')" @click="chooseData">
+          <UiIcon name="file" :size="14" />{{ data ? dataName : t('Data file…') }}
         </button>
-        <button v-if="data" type="button" class="icon-btn quiet sm" aria-label="Run without the data file" title="Run without it" @click="data = ''">
+        <button v-if="data" type="button" class="icon-btn quiet sm" :aria-label="t('Run without the data file')" :title="t('Run without it')" @click="data = ''">
           <UiIcon name="x" :size="13" />
         </button>
       </span>
       <label class="stop">
         <input v-model="stopOnFailure" type="checkbox">
-        <span>Stop at the first failure</span>
+        <span>{{ t('Stop at the first failure') }}</span>
       </label>
       <span class="spacer" />
       <button type="button" class="btn btn-primary btn-sm" :disabled="store.running" @click="run">
-        {{ store.running ? 'Running' : 'Run' }}
+        {{ store.running ? t('Running') : t('Run') }}
       </button>
     </div>
 
     <template v-if="store.lastRun">
       <div class="summary">
         <span class="led" :class="store.lastRun.failed ? 'bad' : 'ok'" />
-        <span class="num">{{ store.lastRun.passed }} passed</span>
-        <span class="num">{{ store.lastRun.failed }} failed</span>
-        <span v-if="rows" class="silk num">{{ rows }} {{ rows === 1 ? 'row' : 'rows' }}</span>
+        <span class="num">{{ t('{n} passed', { n: store.lastRun.passed }) }}</span>
+        <span class="num">{{ t('{n} failed', { n: store.lastRun.failed }) }}</span>
+        <span v-if="rows" class="silk num">{{ rows === 1 ? t('1 row') : t('{n} rows', { n: rows }) }}</span>
         <span class="silk num">{{ store.lastRun.durationMs }} ms</span>
       </div>
 
@@ -78,27 +78,27 @@ function openStep(id: string) {
           <button type="button" class="step" @click="openStep(step.id)">
             <span class="led" :class="step.skipped ? 'off' : step.ok ? 'ok' : 'bad'" />
             <span class="method" :data-method="step.method">{{ step.method }}</span>
-            <span class="name"><span v-if="step.iteration" class="row-no num" :title="`Row ${step.iteration} of the data file`">#{{ step.iteration }}</span>{{ step.name }}</span>
+            <span class="name"><span v-if="step.iteration" class="row-no num" :title="t('Row {n} of the data file', { n: step.iteration })">#{{ step.iteration }}</span>{{ step.name }}</span>
             <span class="outcome silk">
-              {{ step.skipped ?? step.error ?? (step.status ? `${step.status} · ${step.durationMs} ms` : 'no response') }}
+              {{ step.skipped ?? step.error ?? (step.status ? `${step.status} · ${step.durationMs} ms` : t('no response')) }}
             </span>
           </button>
           <ul v-if="step.checks.some((check) => !check.ok) || step.captured.length" class="detail">
             <li v-for="(check, i) in step.checks.filter((one) => !one.ok)" :key="i" class="failed">
               <span class="mono">{{ check.from }}</span>
-              {{ check.note ?? `expected ${check.op} ${check.expected}, got ${check.actual ?? 'nothing'}` }}
+              {{ check.note ?? t('expected {op} {expected}, got {actual}', { op: check.op, expected: check.expected, actual: check.actual ?? t('nothing') }) }}
             </li>
-            <li v-if="step.captured.length" class="captured">captured {{ step.captured.join(', ') }}</li>
+            <li v-if="step.captured.length" class="captured">{{ t('captured {names}', { names: step.captured.join(', ') }) }}</li>
           </ul>
         </li>
       </ul>
     </template>
-    <p v-else-if="!store.running" class="empty">Nothing run yet.</p>
+    <p v-else-if="!store.running" class="empty">{{ t('Nothing run yet.') }}</p>
 
     <template #footer>
-      <span class="silk">Captured values stay in the run; nothing is written to an environment</span>
+      <span class="silk">{{ t('Captured values stay in the run; nothing is written to an environment') }}</span>
       <span class="spacer" />
-      <button type="button" class="btn btn-primary" @click="emit('close')">Done</button>
+      <button type="button" class="btn btn-primary" @click="emit('close')">{{ t('Done') }}</button>
     </template>
   </UiDialog>
 </template>

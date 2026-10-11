@@ -4,7 +4,7 @@ import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync, readdirSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startServer } from './server.mjs'
-import { startDriver, stopDriver, session, check, step, sleep, KEY, driverLog, shots } from './lib.mjs'
+import { startDriver, stopDriver, session, check, step, sleep, KEY, driverLog, shots, english } from './lib.mjs'
 import * as lib from './lib.mjs'
 
 const only = process.env.SECTIONS?.split(',')
@@ -24,11 +24,13 @@ const read = (rel) => readFileSync(join(collection, rel), 'utf8')
 const server = await startServer(8787)
 await startDriver()
 let app
+let restoreLanguage = async () => {}
 try {
   app = await session([collection])
   const { run, runAsync, until, type, chord } = app
   const title = await until('the app', `return store.collection?.meta.name ?? null`, 30000)
   if (title !== 'Two') throw new Error(`wrong collection ${title}; stopping`)
+  restoreLanguage = await english(app)
 
   const newRequest = async (folder = null) => {
     const before = await run(`return store.activeId`)
@@ -66,7 +68,7 @@ try {
 
     // API key in the query string.
     await openTab('Auth')
-    await run(`button('API key', $('section.request')).click()`)
+    await run(`setValue($('select[aria-label="Auth type"]'), 'apikey')`)
     await until('fields', `return $('input[aria-label="Key name"]') ? 1 : null`)
     await run(`setValue($('input[aria-label="Key name"]'), 'api_key'); setValue($('input[aria-label="Key value"]'), 'k-1'); button('Query string', $('section.request')).click()`)
     const r2 = await send()
@@ -86,7 +88,7 @@ try {
     await runAsync(`store.request.options = { follow_redirects: false }; store.touch(); return 1`)
     const r2 = await send()
     check('redirects can be switched off per request', r2.status === 302, r2.status)
-    await openTab('Options')
+    await openTab('Settings')
     const opts = await run(`return text($('section.request .panel'))`)
     check('the Options tab shows the override', /redirect/i.test(opts), opts.slice(0, 120))
   })
@@ -246,7 +248,7 @@ try {
 } catch (e) {
   check('run completed', false, e.message)
 } finally {
-  if (app) { try { await app.screenshot(join(shots, 'last2.png')) } catch {} ; await app.close() }
+  if (app) { await restoreLanguage(); try { await app.screenshot(join(shots, 'last2.png')) } catch {} ; await app.close() }
   stopDriver()
   server.close()
 }

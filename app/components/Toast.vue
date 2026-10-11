@@ -17,9 +17,9 @@ const store = useCollectionStore()
           class="btn btn-quiet btn-sm undo"
           @click="store.undoDelete(); store.toast = null"
         >
-          Undo
+          {{ t('Undo') }}
         </button>
-        <button type="button" class="icon-btn quiet sm" aria-label="Dismiss" @click="store.toast = null">
+        <button type="button" class="icon-btn quiet sm" :aria-label="t('Dismiss')" @click="store.toast = null">
           <UiIcon name="x" :size="13" />
         </button>
       </div>

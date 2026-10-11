@@ -19,8 +19,9 @@ const clientStreaming = computed(() => {
 const canSay = computed(() => isWebsocket.value || (isGrpc.value && clientStreaming.value))
 
 const label = computed(() => {
-  if (!store.myStream) return 'Not connected'
+  if (!store.myStream) return t('Not connected')
   if (isWebsocket.value) return 'WebSocket'
+  if (store.myStream.kind === 'graphql') return 'GraphQL'
   return isGrpc.value ? 'gRPC' : 'Server-sent events'
 })
 
@@ -55,19 +56,19 @@ watch(
 </script>
 
 <template>
-  <section class="stream" aria-label="Connection">
+  <section class="stream" :aria-label="t('Connection')">
     <div class="state">
       <span class="led" :class="store.myStream ? 'ok' : 'off'" />
       <span class="silk">{{ label }}</span>
       <span v-if="store.myStream" class="url mono">{{ store.myStream.url }}</span>
       <span class="spacer" />
-      <span class="silk num">{{ events.length }} events</span>
-      <button v-if="store.myStream" type="button" class="btn btn-quiet btn-sm" @click="store.attempt(() => store.closeStream())">Disconnect</button>
+      <span class="silk num">{{ t('{n} events', { n: events.length }) }}</span>
+      <button v-if="store.myStream" type="button" class="btn btn-quiet btn-sm" @click="store.attempt(() => store.closeStream())">{{ t('Disconnect') }}</button>
     </div>
 
     <div ref="list" class="events">
       <p v-if="!events.length" class="blank">
-        Nothing yet. Connect, and whatever the server sends shows up here as it arrives.
+        {{ t('Nothing yet. Connect, and whatever the server sends shows up here as it arrives.') }}
       </p>
       <div v-for="(event, i) in events" :key="i" class="event" :class="event.kind">
         <span class="at silk num">{{ when(event.at) }}</span>
@@ -82,18 +83,18 @@ watch(
       <input
         v-model="outgoing"
         class="field mono"
-        aria-label="Message to send"
-        placeholder="Type a message and press enter"
+        :aria-label="t('Message to send')"
+        :placeholder="t('Type a message and press enter')"
         spellcheck="false"
       >
-      <button type="submit" class="btn btn-sm" :disabled="!outgoing.trim()">Send</button>
-      <button v-if="isGrpc" type="button" class="btn btn-quiet btn-sm" @click="doneSending">Done sending</button>
+      <button type="submit" class="btn btn-sm" :disabled="!outgoing.trim()">{{ t('Send') }}</button>
+      <button v-if="isGrpc" type="button" class="btn btn-quiet btn-sm" @click="doneSending">{{ t('Done sending') }}</button>
     </form>
   </section>
 </template>
 
 <style scoped>
-.stream { display: flex; flex-direction: column; min-height: 0; background: var(--bg-1); }
+.stream { display: flex; flex-direction: column; min-height: 0; }
 
 .state {
   display: flex;
@@ -104,7 +105,7 @@ watch(
 }
 .url { font-size: var(--t-meta); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.events { flex: 1; overflow: auto; padding: var(--s-2) var(--s-4) var(--s-4); background: var(--well); }
+.events { flex: 1; overflow: auto; padding: var(--s-2) var(--s-4) var(--s-4); }
 .blank { margin: var(--s-6) 0; color: var(--silk); font-size: var(--t-small); text-align: center; }
 
 .event { display: grid; grid-template-columns: 70px 16px minmax(0, 1fr); gap: var(--s-2); padding: 2px 0; align-items: baseline; }

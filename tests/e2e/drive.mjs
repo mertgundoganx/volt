@@ -74,7 +74,7 @@ try {
     throw new Error(`timed out waiting for ${label}`)
   }
 
-  const title = await until('the app', `const t = document.querySelector('.app-bar .name')?.textContent?.trim(); return t && t !== 'No collection' ? t : null`)
+  const title = await until('the app', `const t = document.querySelector('.collection-name')?.textContent?.trim(); return t || null`)
   check('the collection named on the command line is open', title === 'E2E', title)
   if (title !== 'E2E') throw new Error(`not the throwaway collection; stopping before touching ${title}`)
 

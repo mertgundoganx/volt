@@ -25,19 +25,18 @@ async function copyBase() {
     copied.value = true
     setTimeout(() => (copied.value = false), 1400)
   } catch {
-    store.error = 'Could not copy to the clipboard.'
+    store.error = t('Could not copy to the clipboard.')
   }
 }
 </script>
 
 <template>
-  <UiDialog title="Mock server" eyebrow="This machine" :width="720" @close="emit('close')">
+  <UiDialog :title="t('Mock server')" :eyebrow="t('This machine')" :width="720" @close="emit('close')">
     <p class="note">
       <UiIcon name="info" :size="14" />
       <span>
-        Answers with the responses you have kept as examples, on this machine only.
-        It runs while volt runs; there is no hosted URL, because there is no volt
-        service to host one.
+        {{ t('Answers with the responses you have kept as examples, on this machine only.') }}
+        {{ t('It runs while volt runs; there is no hosted URL, because there is no volt service to host one.') }}
       </span>
     </p>
 
@@ -45,21 +44,21 @@ async function copyBase() {
       <template v-if="store.mock">
         <span class="led ok" />
         <code class="base">{{ base }}</code>
-        <button type="button" class="icon-btn quiet sm" :aria-label="copied ? 'Copied' : 'Copy the address'" :title="copied ? 'Copied' : 'Copy'" @click="copyBase">
+        <button type="button" class="icon-btn quiet sm" :aria-label="copied ? t('Copied') : t('Copy the address')" :title="copied ? t('Copied') : t('Copy')" @click="copyBase">
           <UiIcon :name="copied ? 'check' : 'copy'" :size="14" />
         </button>
         <span class="spacer" />
-        <button type="button" class="btn btn-sm" @click="store.stopMock()">Stop</button>
+        <button type="button" class="btn btn-sm" @click="store.stopMock()">{{ t('Stop') }}</button>
       </template>
       <template v-else>
         <label class="port">
-          <span class="silk">Port</span>
-          <input v-model.number="port" class="field mono num" type="number" min="0" max="65535" aria-label="Port">
+          <span class="silk">{{ t('Port') }}</span>
+          <input v-model.number="port" class="field mono num" type="number" min="0" max="65535" :aria-label="t('Port')">
         </label>
-        <span class="hint">0 lets the system pick one</span>
+        <span class="hint">{{ t('0 lets the system pick one') }}</span>
         <span class="spacer" />
         <button type="button" class="btn btn-primary btn-sm" :disabled="starting" @click="start">
-          {{ starting ? 'Starting' : 'Start serving' }}
+          {{ starting ? t('Starting') : t('Start serving') }}
         </button>
       </template>
     </div>
@@ -67,10 +66,10 @@ async function copyBase() {
     <table v-if="store.mock?.routes.length" class="routes">
       <thead>
         <tr>
-          <th scope="col" class="silk">Method</th>
-          <th scope="col" class="silk">Path</th>
-          <th scope="col" class="silk">Answers with</th>
-          <th scope="col" class="silk">Status</th>
+          <th scope="col" class="silk">{{ t('Method') }}</th>
+          <th scope="col" class="silk">{{ t('Path') }}</th>
+          <th scope="col" class="silk">{{ t('Answers with') }}</th>
+          <th scope="col" class="silk">{{ t('Status') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -87,19 +86,17 @@ async function copyBase() {
     </table>
 
     <p v-else-if="!store.mock" class="empty">
-      Keep a response as an example first — that is what the mock serves.
+      {{ t('Keep a response as an example first — that is what the mock serves.') }}
     </p>
 
     <p v-if="store.mock" class="hint foot">
-      A path segment that came from a <code>{{ variableExample }}</code> matches anything.
-      A chip is a condition the call has to meet as well — a query parameter or a
-      JSON field the request gives a value of its own.
-      Add <code>?example=Name</code> to ask for a particular one.
+      {{ t('A path segment that came from a') }} <code>{{ variableExample }}</code> {{ t('matches anything.') }}
+      {{ t('A chip is a condition the call has to meet as well — a query parameter or a JSON field the request gives a value of its own. Add') }} <code>?example=Name</code> {{ t('to ask for a particular one.') }}
     </p>
 
     <template #footer>
       <span class="spacer" />
-      <button type="button" class="btn btn-primary" @click="emit('close')">Done</button>
+      <button type="button" class="btn btn-primary" @click="emit('close')">{{ t('Done') }}</button>
     </template>
   </UiDialog>
 </template>

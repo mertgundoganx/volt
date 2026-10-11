@@ -26,41 +26,73 @@ function hostOf(url: string | null | undefined): string | null {
 export function explain(raw: string, url?: string | null, timeoutMs?: number): Explained {
   const host = hostOf(url)
   // A URL still holding `{{baseUrl}}` has no host to name; say "the server".
-  const at = ` ${host ?? 'the server'}`
   const lower = raw.toLowerCase()
   const keep = (text: string): Explained => ({ text, raw, certificate: false })
 
   if (lower === 'request failed: cancelled' || lower === 'cancelled') {
-    return { text: 'Cancelled.', raw: null, certificate: false }
+    return { text: t('Cancelled.'), raw: null, certificate: false }
   }
   if (/certificate|self.signed|unknownissuer|invalid peer|tls handshake|hostname mismatch|notvalidforname/.test(lower)) {
     return {
-      text: `${host ?? 'The server'} sent a certificate volt does not trust — self-signed, expired, or for another name. For a host you control, send without verifying it.`,
+      text: host
+        ? t('{host} sent a certificate volt does not trust — self-signed, expired, or for another name. For a host you control, send without verifying it.', { host })
+        : t('The server sent a certificate volt does not trust — self-signed, expired, or for another name. For a host you control, send without verifying it.'),
       raw,
       certificate: true,
     }
   }
   if (/connection refused|os error 10061|econnrefused/.test(lower)) {
-    return keep(`Could not connect to${at}: nothing is listening there. Check the URL and that the server is running.`)
+    return keep(
+      host
+        ? t('Could not connect to {host}: nothing is listening there. Check the URL and that the server is running.', { host })
+        : t('Could not connect to the server: nothing is listening there. Check the URL and that the server is running.'),
+    )
   }
   if (/dns error|failed to lookup|no such host|name or service not known|os error 11001|getaddrinfo/.test(lower)) {
-    return keep(`Could not find${at}. Check the URL for a typo, and that you are online.`)
+    return keep(
+      host
+        ? t('Could not find {host}. Check the URL for a typo, and that you are online.', { host })
+        : t('Could not find the server. Check the URL for a typo, and that you are online.'),
+    )
   }
   if (/timed out|timeout|os error 10060/.test(lower)) {
-    const wait = timeoutMs ? ` within ${Math.round(timeoutMs / 1000)} s` : ''
-    return keep(`No response from${at}${wait}. The server may be slow or unreachable; the timeout is in Settings, and per request under Options.`)
+    if (timeoutMs) {
+      const seconds = Math.round(timeoutMs / 1000)
+      return keep(
+        host
+          ? t('No response from {host} within {seconds} s. The server may be slow or unreachable; the timeout is in Settings, and per request in its Settings tab.', { host, seconds })
+          : t('No response from the server within {seconds} s. The server may be slow or unreachable; the timeout is in Settings, and per request in its Settings tab.', { seconds }),
+      )
+    }
+    return keep(
+      host
+        ? t('No response from {host}. The server may be slow or unreachable; the timeout is in Settings, and per request in its Settings tab.', { host })
+        : t('No response from the server. The server may be slow or unreachable; the timeout is in Settings, and per request in its Settings tab.'),
+    )
   }
   if (/connection reset|os error 10054|broken pipe|connection closed|unexpected eof/.test(lower)) {
-    return keep(`${host ?? 'The server'} closed the connection before answering. Try again; if it keeps happening the server is rejecting the request early.`)
+    return keep(
+      host
+        ? t('{host} closed the connection before answering. Try again; if it keeps happening the server is rejecting the request early.', { host })
+        : t('The server closed the connection before answering. Try again; if it keeps happening the server is rejecting the request early.'),
+    )
   }
   if (/network unreachable|os error 10051|no route to host/.test(lower)) {
-    return keep(`No route to${at}. Check your network connection or proxy.`)
+    return keep(
+      host
+        ? t('No route to {host}. Check your network connection or proxy.', { host })
+        : t('No route to the server. Check your network connection or proxy.'),
+    )
   }
   if (/proxy/.test(lower)) {
-    return keep(`The proxy refused or could not reach${at}. Check the proxy in Settings.`)
+    return keep(
+      host
+        ? t('The proxy refused or could not reach {host}. Check the proxy in Settings.', { host })
+        : t('The proxy refused or could not reach the server. Check the proxy in Settings.'),
+    )
   }
   if (/relative url without a base|invalid url|empty host|url parse/.test(lower)) {
-    return keep('That is not a URL volt can send to. It needs a scheme and a host, like https://api.example.com/path.')
+    return keep(t('That is not a URL volt can send to. It needs a scheme and a host, like https://api.example.com/path.'))
   }
   return { text: raw, raw: null, certificate: false }
 }

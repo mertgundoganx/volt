@@ -53,20 +53,20 @@ onMounted(() => input.value?.focus())
 </script>
 
 <template>
-  <UiDialog title="Open a request" eyebrow="Go to" :width="560" @close="emit('close')">
+  <UiDialog :title="t('Open a request')" :eyebrow="t('Go to')" :width="560" @close="emit('close')">
     <template #title>
       <input
         ref="input"
         v-model="query"
         class="query mono"
-        placeholder="Type part of a name or a path"
-        aria-label="Find a request"
+        :placeholder="t('Type part of a name or a path')"
+        :aria-label="t('Find a request')"
         spellcheck="false"
         @keydown="onKey"
       >
     </template>
 
-    <div v-if="results.length" ref="list" class="hits" role="listbox" aria-label="Requests">
+    <div v-if="results.length" ref="list" class="hits" role="listbox" :aria-label="t('Requests')">
       <button
         v-for="(row, i) in results"
         :key="row.id"
@@ -85,12 +85,12 @@ onMounted(() => input.value?.focus())
     </div>
 
     <p v-else class="none">
-      {{ query.trim() ? 'No request matches that.' : 'Nothing sent yet. Type to search the collection.' }}
+      {{ query.trim() ? t('No request matches that.') : t('Nothing sent yet. Type to search the collection.') }}
     </p>
 
     <template #footer>
       <span class="silk">
-        <span class="kbd">↑</span><span class="kbd">↓</span> to move · <span class="kbd">↵</span> to open · <span class="kbd">Esc</span> to close
+        <span class="kbd">↑</span><span class="kbd">↓</span> {{ t('to move') }} · <span class="kbd">↵</span> {{ t('to open') }} · <span class="kbd">Esc</span> {{ t('to close') }}
       </span>
     </template>
   </UiDialog>
@@ -106,7 +106,7 @@ onMounted(() => input.value?.focus())
   background: transparent;
   font-size: 15px;
 }
-.query:focus { background: var(--well); border-color: var(--accent); }
+.query:focus { background: var(--well); border-color: var(--focus); }
 
 .hits { display: grid; gap: 1px; max-height: 46vh; overflow: auto; margin: 0 calc(var(--s-3) * -1); }
 .hit {
@@ -118,7 +118,7 @@ onMounted(() => input.value?.focus())
   border-radius: var(--r-sm);
   text-align: left;
 }
-.hit.on { background: var(--accent-tint); box-shadow: inset 2px 0 0 var(--accent); }
+.hit.on { background: var(--accent-tint); }
 .hit .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hit .id { color: var(--faint); font-size: var(--t-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .none { margin: var(--s-5) 0; color: var(--silk); font-size: var(--t-small); text-align: center; }

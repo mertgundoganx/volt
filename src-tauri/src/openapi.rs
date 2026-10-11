@@ -80,6 +80,7 @@ pub fn parse(spec: &Value) -> Imported {
             // there is no folder level to carry.
             auth: Auth::Inherit,
             headers: Vec::new(),
+            vars: Vec::new(),
             children,
         })
         .collect();
@@ -95,6 +96,7 @@ pub fn parse(spec: &Value) -> Imported {
         name,
         headers: Vec::new(),
         auth: collection_auth.unwrap_or(Auth::None),
+        vars: Vec::new(),
         nodes,
         environments: vec![environment],
         warnings,

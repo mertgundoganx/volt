@@ -15,11 +15,11 @@ onUnmounted(() => clearInterval(timer))
 
 function ago(at: number): string {
   const seconds = Math.max(0, Math.round((now.value - at) / 1000))
-  if (seconds < 45) return 'now'
+  if (seconds < 45) return t('now')
   const minutes = Math.round(seconds / 60)
-  if (minutes < 60) return `${minutes}m`
+  if (minutes < 60) return t('{n}m', { n: minutes })
   const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours}h`
+  if (hours < 24) return t('{n}h', { n: hours })
   return new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
@@ -53,9 +53,9 @@ const groups = computed(() => {
     const day = new Date(entry.at).toDateString()
     const label =
       day === today
-        ? 'Today'
+        ? t('Today')
         : day === yesterday
-          ? 'Yesterday'
+          ? t('Yesterday')
           : new Date(entry.at).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })
     const last = out[out.length - 1]
     if (last?.label === label) last.entries.push(entry)
@@ -72,26 +72,26 @@ const groups = computed(() => {
       <input
         v-model="filter"
         class="field inline"
-        aria-label="Filter history"
-        placeholder="Filter — a URL, a name, 404, 5xx, error"
+        :aria-label="t('Filter history')"
+        :placeholder="t('Filter — a URL, a name, 404, 5xx, error')"
         spellcheck="false"
         @keydown.esc.prevent="filter = ''"
       >
     </div>
     <div class="head">
-      <span class="silk">{{ filter.trim() ? `${shown.length} of ${store.history.length}` : `${store.history.length} sent` }}</span>
+      <span class="silk">{{ filter.trim() ? t('{n} of {total}', { n: shown.length, total: store.history.length }) : t('{n} sent', { n: store.history.length }) }}</span>
       <span class="spacer" />
       <button type="button" class="btn btn-quiet btn-sm" :disabled="!store.history.length" @click="store.clearHistory()">
-        Clear
+        {{ t('Clear') }}
       </button>
     </div>
 
     <div v-if="!store.history.length" class="empty">
       <UiIcon name="history" :size="18" />
-      <p>Requests you send land here with the response they got. History stays on this machine and never goes into the collection.</p>
+      <p>{{ t('Requests you send land here with the response they got. History stays on this machine and never goes into the collection.') }}</p>
     </div>
 
-    <p v-if="store.history.length && !shown.length" class="none">Nothing sent matches</p>
+    <p v-if="store.history.length && !shown.length" class="none">{{ t('Nothing sent matches') }}</p>
 
     <section v-for="group in groups" :key="group.label" class="group">
       <div class="day silk">{{ group.label }}</div>
@@ -126,11 +126,12 @@ const groups = computed(() => {
   height: 28px;
   margin: var(--s-2) var(--s-2) var(--s-1);
   padding-left: 6px;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: var(--r-sm);
+  background: var(--well);
   color: var(--silk);
 }
-.filter:focus-within { border-color: var(--accent); background: var(--well); }
+.filter:focus-within { border-color: var(--focus); }
 .filter .field { flex: 1; min-width: 0; height: 26px; font-size: var(--t-small); }
 .filter .field:focus, .filter .field:hover { background: transparent; border-color: transparent; box-shadow: none; }
 .none { margin: 0; padding: var(--s-5) var(--s-4); color: var(--silk); font-size: var(--t-small); text-align: center; }
@@ -156,9 +157,9 @@ const groups = computed(() => {
   color: var(--ink-2);
 }
 .entry:hover { background: var(--hover); color: var(--ink); }
-.entry.active { background: var(--accent-tint); color: var(--ink); box-shadow: inset 2px 0 0 var(--accent); }
+.entry.active { background: var(--accent-tint); color: var(--ink); }
 
-.entry .method { width: 32px; flex: none; }
+.entry .method { width: 40px; flex: none; }
 
 .text { flex: 1; min-width: 0; display: grid; gap: 3px; }
 .name { font-weight: 550; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

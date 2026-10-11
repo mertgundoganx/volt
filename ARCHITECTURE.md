@@ -25,7 +25,11 @@ This file is the "why" behind the code. For how to build and test it, see
 | `src-tauri/src/aws.rs` | AWS SigV4 signing |
 | `src-tauri/src/digest.rs` | HTTP Digest authentication |
 | `src-tauri/src/ntlm.rs` | NTLMv2 |
-| `src-tauri/src/oauth.rs` | OAuth 2.0 token grants |
+| `src-tauri/src/oauth.rs` | OAuth 2.0 token grants, the device one included |
+| `src-tauri/src/oauth1.rs` | OAuth 1.0a signing |
+| `src-tauri/src/har.rs` | A HAR file read as a collection |
+| `src-tauri/src/bru.rs`, `bruno.rs` | The `.bru` format, and a Bruno collection read as a volt one |
+| `src-tauri/src/openapi_export.rs` | A collection written as an OpenAPI 3.0 document |
 | `src-tauri/src/stream.rs` | WebSocket and server-sent events |
 | `src-tauri/src/grpc.rs` | gRPC, from a `.proto` at runtime: unary and streaming |
 | `src-tauri/src/wire.rs` | HTTP/2 itself — frames, flow control, trailers, and the one TLS config |
@@ -613,7 +617,7 @@ out, reset, certificate — to a sentence with the host in it and what to do,
 and keeps the raw message under it on the strip: the sentence is for the
 person, the raw text is for the bug report. A certificate failure also sets
 `errorCertificate`, which is what puts "Send without verifying" on the strip;
-it turns off `verify_tls` on that request's own Options and sends again, so
+it turns off `verify_tls` on that request's own Settings and sends again, so
 the choice is saved with the request rather than made for the whole app.
 
 **The open tabs come back.** `persistTabs` writes each collection's tabs —
@@ -674,129 +678,156 @@ published by hand.
 `app.vue`. An `invoke` outside `attempt()` becomes an unhandled rejection and the
 UI just sits there.
 
-## Design system — "Paper"
+## Design system — "Bench"
 
-Light first. volt is a sheet of warm paper with ink on it, and one colour —
-ultramarine — kept for the things that act. Follow this for every new screen:
-it is what keeps the app from looking like every other client, and each part
-of it is deliberate.
+volt is a workbench: a tinted bench with a few panels lying on it, and one
+colour that is a highlighter. Follow this for every new screen: it is what
+keeps the app from looking like every other client, and each part of it is
+deliberate.
 
-**The idea.** A request is a file, and the screen should feel like a well-set
-page rather than a cockpit. Warm off-white surfaces, near-black ink, hairline
-rules, and nothing that glows. The collection is visibly files: request ids
-such as `users/list-users.yaml` are printed next to the name, not hidden. Two
-things are *stamped* — the method on the request bar and the status on the
-response — a solid block of colour with the text cut out of it, which is the
-one motif the app owns.
+**The idea.** The window is not one ruled sheet with regions marked off by
+hairlines — every API client is that. It is a bench (`--bg-0`) with separate
+pieces on it: the sidebar, the request, the response, each a rounded panel
+(`.panel`, `--bg-1`, `--r-panel`) with an 8px gap (`--gap`) between it and the
+next. The gap is also the handle: dragging it resizes. The strip across the
+top and the row of open requests are not panels; they lie on the bench itself.
+Inside a panel nothing is boxed again. The collection is visibly files:
+request ids such as `users/list-users.yaml` are printed next to the name.
 
-**The one colour.** Ultramarine means **acts**, and that is the only thing it
-means. It marks the Send key, the request you are on, a `{{variable}}`, the
-focus ring, the underline of the open tab, the rail key that is on. It is never
-decoration, and it is never a status: a warning is amber (`--warn`), a failure
+**The one colour is a highlighter.** On the light bench it is a lime, and a
+lime cannot be text on white — so it is only ever a *fill* with ink on it. It
+is run over the things that act or that you are on: the Send key, the New key,
+the request that is open in the tree, the tab you are on, a `{{variable}}`
+(literally marked, like a pen over a word), the mark in the corner. It is
+never decoration and never a status: a warning is amber (`--warn`), a failure
 is red (`--bad`), a success is green (`--ok`). There is one filled accent
-button on a screen — the one that does the thing. `.btn-primary` is that button
-and the Send key is its own case of it.
+button on a screen — the one that does the thing.
 
-**Two tones of accent, and they are not interchangeable.** `--accent` is a
-fill: white reads on it at 7:1. `--accent-text` is the same colour as text on
-paper, darkened on light and lifted on dark so it clears 4.5:1 on the surface.
-A component that writes accent-coloured *text* uses `--accent-text`; a
-component that *fills* uses `--accent`. Getting them the wrong way round is
-the difference between a control and a smudge.
+**Three accent tokens, and they are not interchangeable.** `--accent` is a
+fill and `--accent-ink` is what is written on it. `--accent-tint` is the wash
+for "you are here". `--accent-text` is the colour as text and is used
+sparingly: on the light bench it is a dark olive, at night it is the lime
+itself. Because the lime has no contrast against white, **focus is not the
+accent**: rings and focused borders use `--focus`, which is ink by day and
+lime by night (and simply the accent in the themes whose accent is dark).
+A component that draws a focus state with `--accent` is invisible on the
+default theme.
 
-**Surfaces**, from the frame inward: `--bg-0` (the rail, the sidebar, the tab
-strip), `--bg-1` (the working surface), `--bg-2` (buttons, cards), `--bg-3`
-(menus and dialogs, the only things that float), `--well` (inputs, code, the
-response body). Light is on bare `:root`; dark is the same paper at night —
-warm graphite, not blue-black — and redefines tokens only, under
-`prefers-color-scheme: dark` while no theme is chosen and under an explicit
-`data-theme="dark"`. Two more sheets of paper, Linen (cream, brick) and Mist
-(cool grey, teal), are named themes as well. Every named theme is selected by
-`[data-theme=…]` on *any* element, not only `:root`: that is how the cards in
-Settings show each theme's real colours — a swatch wears the attribute and
-draws `var(--bg-0)`, `var(--accent)`, `var(--ink)` — without a second copy of
-the palette in a component. The user's choice (System, Paper, Graphite, Linen,
-Mist) lives in Settings and is applied by `applyTheme`. If you add a token,
-add it to all five blocks and check contrast: text >= 4.5:1 on every surface,
-`--faint` and `--punc` >= 3:1. Every hex in `tokens.css` was measured, not
-eyeballed.
+**Surfaces**, from the bench up: `--bg-0` (the bench), `--bg-1` (a panel),
+`--bg-2` (raised: a focused field, a chosen segment), `--bg-3` (menus and
+dialogs, the only things that float), `--well` (a filled control: fields,
+buttons, the URL bar, the body editor). Light is on bare `:root`; Night
+redefines tokens only, under `prefers-color-scheme: dark` while no theme is
+chosen and under an explicit `data-theme="dark"`. Cobalt (paper and
+ultramarine — what volt looked like before 1.0), Linen (cream, brick) and
+Mist (cool grey, teal) are named themes as well; their accent is dark with
+white ink on it. Every named theme is selected by `[data-theme=…]` on *any*
+element, not only `:root`: that is how the cards in Settings show each
+theme's real colours without a second copy of the palette. The user's choice
+lives in Settings and is applied by `applyTheme`. If you add a token, add it
+to every block and check contrast: text >= 4.5:1 on every surface, `--faint`
+and `--punc` >= 3:1.
 
 **Type.** IBM Plex Sans for the interface and IBM Plex Mono for anything a
-machine reads: URLs, keys, values, bodies, paths, numbers. They are one family,
-which is most of why the screen reads as designed rather than assembled. Both
-are bundled through `@fontsource`; the app is offline and its CSP only allows
-same-origin, so never link a font CDN. Sizes come from `--t-*`. A label is
-`.silk`: 11.5px, medium weight, sentence case, in the label colour. It does
-not uppercase and it does not track — the label should be quieter than the
-value, not louder.
+machine reads: URLs, keys, values, bodies, paths, numbers. They are one
+family, which is most of why the screen reads as designed rather than
+assembled. Both are bundled through `@fontsource`; the app is offline and its
+CSP only allows same-origin, so never link a font CDN. Sizes come from
+`--t-*`. A label is `.silk`: 11.5px, medium weight, sentence case, in the
+label colour. It does not uppercase and it does not track.
 
-**Shape.** Radius follows role: `--r-xs` 4 (checkbox, kbd, stamps, variable
-marks), `--r-sm` 6 (buttons, inputs, rows), `--r-md` 8 (menus, the URL bar),
-`--r-lg` 10 (dialogs). Structure is drawn with hairline rules, not boxes:
-panes, tables and sections are separated by `--line`, and only the things
-that float get `--shadow-pop`. No other shadow exists. No gradient exists. Do
-not wrap content in cards.
+**Shape.** Round, and rounder the more a thing is one object: `--r-xs` 5
+(checkbox, kbd, method marks), `--r-sm` 8 (buttons, inputs, rows), `--r-md`
+10 (menus), `--r-lg` and `--r-panel` 14 (dialogs, panels), `--r-full` for
+pills — the URL bar, the Send key, open-request tabs, section tabs, chips,
+the status. A pill means "one thing you act on or are on"; a rounded
+rectangle means "a place to type or a place things are".
 
-**Materials.** A control is a rectangle with a hairline and a fill. Under the
-pointer it darkens one step (`--hover`), pressed another (`--press`). Nothing
-moves on press and nothing lights up. `UiSegmented` is a strip of choices with
-the chosen one lifted to the surface; the chosen one is not filled with the
-accent, because a choice is not an action.
+**Materials.** Controls are filled, not outlined. A button or a field is a
+patch of `--well` on the panel; under the pointer it darkens a step, pressed
+another. A border appears for focus only. `UiSegmented` is a well with the
+chosen option lifted to the surface; the chosen one is not filled with the
+accent, because a choice is not an action. The only shadows are
+`--shadow-pop` under what floats and the faint `--shadow-panel` under a
+panel. No gradient exists.
 
-**The layout.** A rail on the left edge — the mark, then one key per section
-(Collection, History, Env, Settings) with its name under it, because an icon
-that needs a tooltip is a puzzle and a rail with names is the thing people
-already know from every other tool. Beside it the sidebar for the section that
-is on: search and New on top, then the collection itself as the root row with
-its menu, then the tree — the shape someone arriving from Postman expects, so
-nothing has to be explained. Above both a slim bar holding the collection
-switcher and the environment. The request is one bar: the method stamp, the address, and Send
-welded to its right end, because to the person typing it is one thing — where,
-and go. The response puts its reading in the tab row — the status stamp, the
-time, the size — rather than in a readout of its own.
+**Marks.** A method is a small mark in its own colour on a wash of that
+colour (`.method`), the same in the tree, on a tab and in history; in the URL
+bar it is the same mark grown into a pill (`.method.tag`) and it is also the
+picker — for the method, and below a divider for the other kinds of request
+(WebSocket, SSE, gRPC), because to the person choosing those are answers to
+the same question. The status of a response is a pill in the colour of what
+it means, with a dot, and it leads the response's tab row.
 
-**Shared vocabulary** (`base.css`): `.btn` (+ `.btn-primary`, `.btn-quiet`,
-`.btn-danger`, `.btn-sm`), `.icon-btn` (+ `.quiet`, `.sm`, `.on`), `.field`
-(+ `.mono`, `.inline`, `.invalid`), native checkboxes and `.switch` are styled
-globally and go accent when checked, `.led` (+ `ok/warn/bad/live/off`, a plain
-dot), `.method[data-method]` (coloured text; + `.tag` for the stamp, whose
-text is `--on-method`), `.var` (+ `.missing`), `.kbd`, `.chip` (+ `.accent/
-.ok/.warn/.bad`), `.silk`, `.mono`, `.num` (tabular figures).
+**The layout.** The strip on top holds the mark and, at the right, what is
+about the whole window: the environment (a menu — the live one, the others,
+and the way in to edit them), **Tools** (run, mock server, monitors, OAuth,
+cookies, sync, export — everything that works on a whole collection, in one
+menu rather than scattered), how the two panes lie (stacked or side by side;
+a narrow window always stacks), shortcuts and settings. The sidebar panel
+switches between Collections and History at its head; under that, search and
+the split **New** key (the plus makes a request, the arrow lists the rest:
+folder, from cURL, new collection, open a folder, import). The open
+collection is the root of the tree with its own menu; below the tree the
+other collections this machine knows are listed, and a click on one opens it
+— one collection is open at a time, and its tabs come back when you return.
+The request is one long pill — method, address, Send — then its sections as
+a row of words with the open one highlighted. A request only shows the
+sections its kind has: a socket has no Body, Tests or Captures.
+
+**Shared vocabulary** (`base.css`): `.panel`, `.btn` (+ `.btn-primary`,
+`.btn-quiet`, `.btn-danger`, `.btn-sm`), `.icon-btn` (+ `.quiet`, `.sm`,
+`.on`), `.field` (+ `.mono`, `.inline`, `.invalid`), native checkboxes and
+`.switch` are styled globally and take the accent when checked, `.led`
+(+ `ok/warn/bad/live/off`), `.method[data-method]` (+ `.tag`), `.var`
+(+ `.missing`), `.kbd`, `.chip` (+ `.accent/.ok/.warn/.bad`), `.silk`,
+`.mono`, `.num` (tabular figures).
 
 **Primitives** (`components/ui/`, used as `<UiX>`): reach for these before
 writing markup. `UiVarInput` for any single-line field that can hold
-`{{variables}}` (marks undefined ones in amber); `UiCodeView` for any body
-shown to the user; `UiDialog` for any modal (Esc, focus trap, return focus);
-`UiTabs`/`UiSegmented` for switching (arrow keys work); `UiMeasure` for a
-labelled reading; `UiSplitter` for resizable panes; `UiMenuButton` for a
-button that opens a short menu (items with icon and hint, keyboard navigation;
-`variant` picks a quiet, solid or primary face). For a passing confirmation
-call `store.notify(text, detail?, tone)`, which the `Toast` shows; errors
-still go through `attempt()` and the error strip.
+`{{variables}}` (marks undefined ones in amber, completes on `{{`);
+`UiCodeEditor` for anything typed over several lines — it colours JSON and
+marks variables through a mirror layer behind a transparent textarea, keeps
+indentation on Enter and closes brackets; `UiCodeView` for any body shown to
+the user; `UiDialog` for any modal (Esc, focus trap, return focus);
+`UiTabs`/`UiSegmented`/`UiSelect` for switching — tabs for sections, a
+segment for up to five or so short choices, a select beyond that (the auth
+kinds are a select: nine do not fit in a row); `UiSplitter` for the gap
+between two panels; `UiMenuButton` for a button that opens a short menu. For
+a passing confirmation call `store.notify(text, detail?, tone)`; errors go
+through `attempt()` and the error strip.
 
 **Icons and the mark.** Only from `utils/icons.ts`: drawn for this app on a
-16px grid, 1.5px stroke, round caps. No icon libraries (Lucide and friends are
-the most recognisable sign of a generated UI). The mark is the bolt in that
-set, filled; the app icon is the same bolt, white on ultramarine, from
+16px grid, 1.5px stroke, round caps. No icon libraries. The mark is the bolt
+on a lime tile, in ink; the app icon is the same, from
 `src-tauri/app-icon.svg` — regenerate every size with
 `pnpm tauri icon src-tauri/app-icon.svg -o src-tauri/icons` and delete the
-`android/` and `ios/` folders it also writes. Prefer a word when an icon would
-need a tooltip to be understood; the rail's keys carry their names.
+`android/` and `ios/` folders it also writes. The bolt is also the Send key's
+icon: the name of the app is the thing it does.
+
+**Words.** Every visible string goes through `t('English sentence')`
+(`composables/useI18n.ts`): the English text is the key, a missing
+translation shows in English, and values go in by name —
+`t('{n} requests', { n })`. Each language is a folder under `app/i18n/` — `de`, `es`, `it`, `nl`, `pt`,
+`ru`, `tr` — with one file per area of the app and the same keys in every
+one. A new string needs an entry in each; a language added needs the four
+files, a line in `LANGUAGES` and a line in `TABLES`. The English text is what the end-to-end suites select by, so changing a
+label means changing its key in the dictionary and the test with it. What
+comes from outside the interface — a server's reply, an error from Rust, a
+file name — is shown as it came.
 
 **Motion.** Short and functional only: 120ms colour transitions on `--ease`,
-a 120–160ms fade for dialogs and menus, stripes across the Send key while a
-request is in flight, a sweep on the response strip while waiting.
-`prefers-reduced-motion` turns it all off (`base.css`).
+a 120–160ms fade for dialogs and menus, a sweep on the response strip while
+waiting. `prefers-reduced-motion` turns it all off (`base.css`).
 
 **Copy.** Say what happens, from the user's side: "Save environment", "No
 response yet. Send the request", "Undefined: orderId". Errors say what went
-wrong and what to do. No eyebrow labels over headings, no taglines.
+wrong and what to do. No taglines.
 
-**Avoid**, because they are what makes a UI read as generated: a dark
-background with one neon accent, glow and halo effects, glass and blur,
-gradients, Inter, emoji as icons, a rounded card with a shadow around
-everything, centred landing-page layouts for tool screens, tracked uppercase
-labels on everything, decorative numbering.
+**Avoid**: hairline-ruled edge-to-edge regions (the look this replaced),
+underlined tab strips, glow and halo effects, glass and blur, gradients,
+Inter, emoji as icons, centred landing-page layouts for tool screens, tracked
+uppercase labels, an accent used as a focus ring, a second accent colour.
 
 **Pitfalls already hit:**
 - A pane that stacks a header, an editor and a strip or two needs a

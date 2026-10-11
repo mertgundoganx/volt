@@ -120,7 +120,7 @@ function foldSummary(original: number) {
   const end = foldEnds.value.get(original)
   if (end === undefined) return ''
   const closing = lines.value[end]?.map((t) => t.text).join('').trim().replace(/,$/, '') ?? ''
-  return ` … ${closing} ${end - original - 1} ${end - original - 1 === 1 ? 'line' : 'lines'}`
+  return ` … ${closing} ${end - original - 1 === 1 ? t('1 line') : t('{n} lines', { n: end - original - 1 })}`
 }
 
 /** The nearest ancestor that actually scrolls; the body lives inside a pane. */
@@ -196,7 +196,7 @@ watch(
           type="button"
           class="fold"
           tabindex="-1"
-          :aria-label="folded.has(original) ? `Unfold line ${original + 1}` : `Fold line ${original + 1}`"
+          :aria-label="folded.has(original) ? t('Unfold line {n}', { n: original + 1 }) : t('Fold line {n}', { n: original + 1 })"
           @click="toggleFold(original)"
         >
           <UiIcon :name="folded.has(original) ? 'chevron-right' : 'chevron-down'" :size="11" />
@@ -206,8 +206,7 @@ watch(
     </div>
     <div v-if="below" class="spacer" :style="{ height: `${below}px` }" aria-hidden="true" />
     <p v-if="capped" class="capped">
-      Showing the first {{ WRAP_CAP.toLocaleString() }} of {{ lines.length.toLocaleString() }} lines.
-      Turn wrapping off to scroll all of it.
+      {{ t('Showing the first {shown} of {total} lines. Turn wrapping off to scroll all of it.', { shown: WRAP_CAP.toLocaleString(), total: lines.length.toLocaleString() }) }}
     </p>
   </div>
 </template>

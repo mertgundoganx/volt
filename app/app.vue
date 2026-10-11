@@ -12,12 +12,14 @@ installShortcuts()
 // The bottom pane follows the open request.
 const bottom = computed(() => {
   const kind = store.request?.kind ?? 'http'
-  if (kind === 'websocket' || kind === 'sse') return 'stream'
+  if (kind === 'websocket' || kind === 'sse' || store.isSubscription) return 'stream'
   // A streaming gRPC call is a connection, and reads like one.
   if (kind === 'grpc') return store.grpcStreams ? 'stream' : 'grpc'
   return 'response'
 })
 
+// These register before the language is known, so the sheet translates the
+// labels when it shows them.
 useShortcut('mod+p', 'Open a request', () => (palette.value = true))
 useShortcut('mod+e', 'Environments', () => (editingEnv.value = true))
 useShortcut('mod+,', 'Settings', () => (editingSettings.value = true))
@@ -45,10 +47,50 @@ const { value: sidebarWidth, reset: resetSidebar } = usePersistentNumber('volt.s
 const { value: requestShare, reset: resetRequestShare } = usePersistentNumber('volt.requestShare', 0.5, 0.2, 0.8)
 const workArea = ref<HTMLElement>()
 
-function resizeRequest(delta: number) {
-  const height = workArea.value?.clientHeight ?? 0
-  if (height > 0) requestShare.value += delta / height
+// How the two panes lie: the response under the request, or beside it.
+// Side by side needs room; in a narrow window the choice waits and the panes stack.
+// "Room" is the width left for the two panes, not the window's: a wide
+// sidebar in a medium window leaves as little as a narrow window does.
+const ROOM_FOR_TWO = 720
+const roomy = ref(true)
+const mainArea = ref<HTMLElement>()
+onMounted(() => {
+  const watcher = new ResizeObserver(([entry]) => {
+    if (entry) roomy.value = entry.contentRect.width >= ROOM_FOR_TWO
+  })
+  // The element is replaced when the language changes (the shell is keyed by
+  // it), so follow the ref rather than observing whatever was there first.
+  watch(mainArea, (now, was) => {
+    if (was) watcher.unobserve(was)
+    if (now) watcher.observe(now)
+  }, { immediate: true })
+  onUnmounted(() => watcher.disconnect())
+})
+const layout = ref<'rows' | 'cols'>('rows')
+const lying = computed(() => (roomy.value ? layout.value : 'rows'))
+try {
+  if (localStorage.getItem('volt.layout') === 'cols') layout.value = 'cols'
+} catch {
+  // Storage is unavailable: the default stands.
 }
+watch(layout, (next) => {
+  try {
+    localStorage.setItem('volt.layout', next)
+  } catch {
+    // Not persisting is fine.
+  }
+})
+
+function resizeRequest(delta: number) {
+  const size = (lying.value === 'rows' ? workArea.value?.clientHeight : workArea.value?.clientWidth) ?? 0
+  if (size > 0) requestShare.value += delta / size
+}
+
+const workStyle = computed(() =>
+  lying.value === 'rows'
+    ? { gridTemplateRows: `minmax(150px, ${requestShare.value}fr) var(--gap) minmax(120px, ${1 - requestShare.value}fr)` }
+    : { gridTemplateColumns: `minmax(320px, ${requestShare.value}fr) var(--gap) minmax(280px, ${1 - requestShare.value}fr)` },
+)
 
 // Streams push events; the store keeps the open one's. The unlisten has to be
 // registered outside the async callback: after an `await` there is no current
@@ -103,24 +145,22 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="shell">
-    <Rail @edit-environment="editingEnv = true" @open-settings="editingSettings = true" />
+  <!-- Keyed by language, so choosing another one redraws every label at once. -->
+  <div :key="uiLanguage" class="shell">
+    <TopBar v-model:layout="layout" :can-split="roomy" @edit-environment="editingEnv = true" @open-settings="editingSettings = true" />
 
-    <div class="rest">
-      <AppBar @edit-environment="editingEnv = true" @open-settings="editingSettings = true" />
-
-      <div class="body">
+    <div class="bench">
         <Sidebar :style="{ width: `${sidebarWidth}px` }" />
-        <UiSplitter axis="x" label="Sidebar width" @drag="sidebarWidth += $event" @reset="resetSidebar()" />
+        <UiSplitter axis="x" :label="t('Sidebar width')" @drag="sidebarWidth += $event" @reset="resetSidebar()" />
 
-        <main class="main">
+        <main ref="mainArea" class="main">
           <div v-if="store.crash" class="error-strip" role="alert">
             <span class="led bad" />
             <span class="message selectable">
-              volt closed unexpectedly last time. The report is at
-              <span class="mono">{{ store.crash.path }}</span> — please attach it to a bug report.
+              {{ t('volt closed unexpectedly last time. The report is at') }}
+              <span class="mono">{{ store.crash.path }}</span> {{ t('— please attach it to a bug report.') }}
             </span>
-            <button type="button" class="icon-btn quiet sm" aria-label="Dismiss crash report" title="Dismiss" @click="store.crash = null">
+            <button type="button" class="icon-btn quiet sm" :aria-label="t('Dismiss crash report')" :title="t('Dismiss')" @click="store.crash = null">
               <UiIcon name="x" :size="14" />
             </button>
           </div>
@@ -135,36 +175,30 @@ onMounted(() => {
               v-if="store.errorCertificate && store.request"
               type="button"
               class="btn btn-sm"
-              title="Turns off certificate verification for this request (its Options tab) and sends again"
+              :title="t('Turns off certificate verification for this request (its Settings tab) and sends again')"
               @click="store.sendWithoutVerifying()"
             >
-              Send without verifying
+              {{ t('Send without verifying') }}
             </button>
-            <button type="button" class="icon-btn quiet sm" aria-label="Dismiss error" title="Dismiss" @click="store.error = null">
+            <button type="button" class="icon-btn quiet sm" :aria-label="t('Dismiss error')" :title="t('Dismiss')" @click="store.error = null">
               <UiIcon name="x" :size="14" />
             </button>
           </div>
 
           <RequestTabs />
 
-          <div
-            v-if="store.request"
-            ref="workArea"
-            class="work"
-            :style="{ gridTemplateRows: `minmax(150px, ${requestShare}fr) auto minmax(120px, ${1 - requestShare}fr)` }"
-          >
-            <RequestPane />
-            <UiSplitter axis="y" label="Request and response height" @drag="resizeRequest" @reset="resetRequestShare()" />
-            <!-- The bottom pane follows the kind of request: a socket is not a
+          <div v-if="store.request" ref="workArea" class="work" :class="lying" :style="workStyle">
+            <RequestPane class="panel" />
+            <UiSplitter :axis="lying === 'rows' ? 'y' : 'x'" :label="t('Request and response size')" @drag="resizeRequest" @reset="resetRequestShare()" />
+            <!-- The second pane follows the kind of request: a socket is not a
                  response, and a gRPC reply is not an HTTP one. -->
-            <StreamPane v-if="bottom === 'stream'" />
-            <GrpcReplyPane v-else-if="bottom === 'grpc'" />
-            <ResponsePane v-else />
+            <StreamPane v-if="bottom === 'stream'" class="panel" />
+            <GrpcReplyPane v-else-if="bottom === 'grpc'" class="panel" />
+            <ResponsePane v-else class="panel" />
           </div>
 
-          <Welcome v-else />
+          <Welcome v-else class="panel" />
         </main>
-      </div>
     </div>
 
     <EnvironmentEditor v-if="editingEnv" @close="editingEnv = false" />
@@ -194,28 +228,32 @@ onMounted(() => {
     <div v-if="dropping" class="drop-veil" aria-hidden="true">
       <div class="drop-card">
         <UiIcon name="import" :size="22" />
-        <span class="drop-title">Drop to import</span>
-        <span class="drop-hint">A Postman, Insomnia or OpenAPI file becomes a collection; a folder opens.</span>
+        <span class="drop-title">{{ t('Drop to import') }}</span>
+        <span class="drop-hint">{{ t('A Postman, Insomnia, Bruno, OpenAPI or HAR export becomes a collection; a folder opens.') }}</span>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.shell { display: flex; height: 100%; }
-.rest { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.body { flex: 1; display: flex; min-height: 0; }
-.main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg-1); }
+/* The bench: a strip on top, and under it the panels with a gap between. */
+.shell { display: flex; flex-direction: column; height: 100%; }
+.bench { flex: 1; display: flex; min-height: 0; padding: 0 var(--gap) var(--gap); }
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 
-.work { flex: 1; display: grid; min-height: 0; }
+.work { flex: 1; display: grid; min-height: 0; min-width: 0; }
+.work.rows { grid-template-columns: minmax(0, 1fr); }
+.work.cols { grid-template-rows: minmax(0, 1fr); }
 
+/* A message lies on the bench like a slip of paper: its own rounded piece. */
 .error-strip {
   display: flex;
   align-items: flex-start;
   gap: var(--s-3);
+  margin-bottom: var(--gap);
   padding: var(--s-2) var(--s-2) var(--s-2) var(--s-4);
-  border-bottom: 1px solid color-mix(in srgb, var(--bad) 35%, var(--line));
-  background: var(--bad-tint);
+  border-radius: var(--r-panel);
+  background: color-mix(in srgb, var(--bad) 12%, var(--bg-1));
   flex: none;
 }
 .error-strip .led { margin-top: 6px; }
@@ -238,12 +276,12 @@ onMounted(() => {
   justify-items: center;
   gap: 6px;
   padding: var(--s-6) var(--s-8);
-  border: 2px dashed var(--accent);
+  border: 2px dashed var(--focus);
   border-radius: var(--r-lg);
   background: var(--bg-3);
   color: var(--ink);
 }
-.drop-card .ui-icon { color: var(--accent-text); margin-bottom: 4px; }
+.drop-card .ui-icon { color: var(--ink); margin-bottom: 4px; }
 .drop-title { font-weight: 600; font-size: 15px; }
 .drop-hint { color: var(--silk); font-size: var(--t-small); max-width: 40ch; text-align: center; }
 .message {

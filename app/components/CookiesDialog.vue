@@ -25,7 +25,7 @@ const byDomain = computed(() => {
 })
 
 function when(expires: number | null) {
-  if (!expires) return 'session'
+  if (!expires) return t('session')
   return new Date(expires * 1000).toLocaleString()
 }
 
@@ -41,18 +41,18 @@ async function clearAll() {
 </script>
 
 <template>
-  <UiDialog title="Cookies" eyebrow="This collection" :width="720" @close="emit('close')">
+  <UiDialog :title="t('Cookies')" :eyebrow="t('This collection')" :width="720" @close="emit('close')">
     <p class="note">
       <UiIcon name="lock" :size="14" />
       <span>
-        Kept in memory for as long as volt is open, never written to the collection —
-        a session cookie is a credential. Closing volt forgets them.
+        {{ t('Kept in memory for as long as volt is open, never written to the collection — a session cookie is a credential.') }}
+        {{ t('Closing volt forgets them.') }}
       </span>
     </p>
 
-    <p v-if="loading" class="empty">Reading the jar…</p>
+    <p v-if="loading" class="empty">{{ t('Reading the jar…') }}</p>
     <p v-else-if="!cookies.length" class="empty">
-      No cookies yet. They arrive when a response sets one.
+      {{ t('No cookies yet. They arrive when a response sets one.') }}
     </p>
 
     <div v-for="[domain, list] in byDomain" v-else :key="domain" class="group">
@@ -60,10 +60,10 @@ async function clearAll() {
       <table class="cookies">
         <thead>
           <tr>
-            <th scope="col" class="silk">Name</th>
-            <th scope="col" class="silk">Value</th>
-            <th scope="col" class="silk">Path</th>
-            <th scope="col" class="silk">Expires</th>
+            <th scope="col" class="silk">{{ t('Name') }}</th>
+            <th scope="col" class="silk">{{ t('Value') }}</th>
+            <th scope="col" class="silk">{{ t('Path') }}</th>
+            <th scope="col" class="silk">{{ t('Expires') }}</th>
             <th scope="col" />
           </tr>
         </thead>
@@ -76,7 +76,7 @@ async function clearAll() {
             <td>
               <span v-if="cookie.secure" class="chip">TLS</span>
               <span v-if="cookie.httpOnly" class="chip">HTTP</span>
-              <button type="button" class="icon-btn quiet sm" :aria-label="`Remove ${cookie.name}`" title="Remove" @click="drop(cookie)">
+              <button type="button" class="icon-btn quiet sm" :aria-label="t('Remove {name}', { name: cookie.name })" :title="t('Remove')" @click="drop(cookie)">
                 <UiIcon name="x" :size="14" />
               </button>
             </td>
@@ -87,11 +87,11 @@ async function clearAll() {
 
     <template #footer>
       <button type="button" class="btn btn-quiet btn-sm" :disabled="!cookies.length" @click="clearAll">
-        <UiIcon name="trash" :size="14" />Forget all
+        <UiIcon name="trash" :size="14" />{{ t('Forget all') }}
       </button>
-      <span class="silk">{{ cookies.length }} {{ cookies.length === 1 ? 'cookie' : 'cookies' }}</span>
+      <span class="silk">{{ cookies.length === 1 ? t('1 cookie') : t('{n} cookies', { n: cookies.length }) }}</span>
       <span class="spacer" />
-      <button type="button" class="btn btn-primary" @click="emit('close')">Done</button>
+      <button type="button" class="btn btn-primary" @click="emit('close')">{{ t('Done') }}</button>
     </template>
   </UiDialog>
 </template>

@@ -73,7 +73,7 @@ function parseBulk(input: string) {
 
 const store = useCollectionStore()
 async function choose(index: number) {
-  const path = await store.pickFile('Choose the file to send')
+  const path = await store.pickFile(t('Choose the file to send'))
   if (path) update(index, { value: path, file: true })
 }
 
@@ -91,25 +91,25 @@ function remove(index: number) {
         :aria-pressed="bulk"
         @click="bulk ? (bulk = false) : openBulk()"
       >
-        {{ bulk ? 'Table' : 'Bulk edit' }}
+        {{ bulk ? t('Table') : t('Bulk edit') }}
       </button>
     </div>
 
     <textarea
       v-if="bulk"
       class="field mono bulk"
-      :aria-label="`${props.nameLabel}s as text`"
+      :aria-label="t('{name}s as text', { name: t(props.nameLabel) })"
       spellcheck="false"
-      :placeholder="`${props.nameLabel}: value\n# a line starting with # is switched off`"
+      :placeholder="t('{name}: value\n# a line starting with # is switched off', { name: t(props.nameLabel) })"
       :value="text"
       @input="parseBulk(($event.target as HTMLTextAreaElement).value)"
     />
 
-    <div v-else class="table" role="table" :aria-label="`${props.nameLabel}s`">
+    <div v-else class="table" role="table" :aria-label="t('{name}s', { name: t(props.nameLabel) })">
       <div class="row head" role="row">
-        <span role="columnheader"><span class="visually-hidden">Enabled</span></span>
-        <span role="columnheader" class="silk">{{ props.nameLabel }}</span>
-        <span role="columnheader" class="silk">{{ props.valueLabel }}</span>
+        <span role="columnheader"><span class="visually-hidden">{{ t('Enabled') }}</span></span>
+        <span role="columnheader" class="silk">{{ t(props.nameLabel) }}</span>
+        <span role="columnheader" class="silk">{{ t(props.valueLabel) }}</span>
         <span role="columnheader" />
       </div>
 
@@ -125,15 +125,15 @@ function remove(index: number) {
             type="checkbox"
             :checked="row.enabled"
             :disabled="isBlank(row)"
-            :aria-label="`Send ${row.name || 'this row'}`"
+            :aria-label="row.name ? t('Send {name}', { name: row.name }) : t('Send this row')"
             @change="update(i, { enabled: ($event.target as HTMLInputElement).checked })"
           >
         </span>
         <input
           class="field inline mono name"
           :value="row.name"
-          :placeholder="isBlank(row) ? props.addLabel : ''"
-          :aria-label="props.nameLabel"
+          :placeholder="isBlank(row) ? t(props.addLabel) : ''"
+          :aria-label="t(props.nameLabel)"
           spellcheck="false"
           @input="update(i, { name: ($event.target as HTMLInputElement).value })"
         >
@@ -141,7 +141,7 @@ function remove(index: number) {
           variant="inline"
           :model-value="row.value"
           :known="props.known"
-          :label="props.valueLabel"
+          :label="t(props.valueLabel)"
           @update:model-value="update(i, { value: $event })"
         />
         <span v-if="props.files" class="center">
@@ -151,8 +151,8 @@ function remove(index: number) {
             :class="{ on: row.file }"
             :disabled="isBlank(row)"
             :aria-pressed="!!row.file"
-            :aria-label="row.file ? 'Sends a file' : 'Sends text'"
-            :title="row.file ? 'A file: the value is a path, taken from the collection folder' : 'Text'"
+            :aria-label="row.file ? t('Sends a file') : t('Sends text')"
+            :title="row.file ? t('A file: the value is a path, taken from the collection folder') : t('Text')"
             @click="update(i, { file: !row.file })"
           >
             <UiIcon :name="row.file ? 'file' : 'braces'" :size="13" />
@@ -160,8 +160,8 @@ function remove(index: number) {
           <button
             type="button"
             class="as-file pick"
-            :aria-label="`Choose a file for ${row.name || 'this field'}`"
-            title="Choose a file"
+            :aria-label="row.name ? t('Choose a file for {name}', { name: row.name }) : t('Choose a file for this field')"
+            :title="t('Choose a file')"
             @click="choose(i)"
           >
             <UiIcon name="folder" :size="13" />
@@ -172,8 +172,8 @@ function remove(index: number) {
             v-if="!isBlank(row)"
             type="button"
             class="icon-btn quiet sm"
-            :aria-label="`Remove ${row.name || 'row'}`"
-            title="Remove"
+            :aria-label="row.name ? t('Remove {name}', { name: row.name }) : t('Remove row')"
+            :title="t('Remove')"
             @click="remove(i)"
           >
             <UiIcon name="x" :size="14" />
@@ -230,7 +230,7 @@ function remove(index: number) {
   place-items: center;
   width: 26px;
   height: 22px;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: var(--r-sm);
   color: var(--silk);
   background: var(--well);

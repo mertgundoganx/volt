@@ -305,6 +305,7 @@ struct Parts {
     timeout_ms: Option<u64>,
     proxy: Option<String>,
     client_cert: Option<String>,
+    ca_cert: Option<String>,
     headers: Vec<(String, String)>,
     data: Vec<Data>,
     /// name, value-or-path, and whether it is a file.
@@ -464,6 +465,10 @@ fn apply(parts: &mut Parts, name: &str, inline: Option<String>, tokens: &[String
         }
         "cert" => {
             parts.client_cert = Some(value_for(name, inline, tokens, i)?);
+            return Ok(());
+        }
+        "cacert" => {
+            parts.ca_cert = Some(value_for(name, inline, tokens, i)?);
             return Ok(());
         }
         _ => {}
@@ -698,6 +703,7 @@ pub fn parse(command: &str, existing: &[EnvVar]) -> Result<Parsed> {
         verify_tls: parts.insecure.then_some(false),
         proxy: parts.proxy.clone(),
         client_cert: parts.client_cert.clone(),
+        ca_cert: parts.ca_cert.clone(),
         follow_redirects: None,
     };
     if !options.is_empty() {
@@ -904,6 +910,13 @@ pub fn render(plan: &Plan, options: &ExecOptions) -> String {
         }
     }
 
+    if let Some(credentials) = &plan.oauth1 {
+        // Signed here as well, for the same reason: curl has no OAuth 1.0 of
+        // its own, and a command that needs a second tool to finish it is not
+        // a copy of the request. The timestamp in it goes stale in minutes.
+        lines.push(format!("-H {}", quote(&format!("Authorization: {}", credentials.header(plan)))));
+    }
+
     match &plan.body {
         PlanBody::None => {}
         PlanBody::Text { content, default_type } => {
@@ -940,6 +953,9 @@ pub fn render(plan: &Plan, options: &ExecOptions) -> String {
     }
     if let Some(cert) = options.client_cert.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
         lines.push(format!("--cert {}", quote(cert)));
+    }
+    if let Some(ca) = options.ca_cert.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        lines.push(format!("--cacert {}", quote(ca)));
     }
     if options.follow_redirects {
         lines.push("-L".into());
@@ -1199,10 +1215,12 @@ mod tests {
             verify_tls: Some(false),
             proxy: Some("http://proxy:8080".into()),
             client_cert: Some("certs/client.pem".into()),
+            ca_cert: Some("certs/ca.pem".into()),
             follow_redirects: None,
         });
         let command = export_with(&r, true, &ExecOptions::default()).command;
         assert!(command.contains("-x http://proxy:8080") && command.contains("--cert certs/client.pem"), "{command}");
+        assert!(command.contains("--cacert certs/ca.pem"), "{command}");
         assert!(command.contains("-k") && command.contains("--max-time 2.5"), "{command}");
 
         let back = parse_ok(&command).request.options.expect("they come back");
@@ -1350,5 +1368,21 @@ mod tests {
         let back = parse(&export_with(&with_key, true, &ExecOptions::default()).command, &[]).unwrap();
         assert!(matches!(back.request.auth, Auth::None));
         assert_eq!(header(&back.request, "x-api-key").unwrap().value, "{{apiKey}}");
+    }
+
+    #[test]
+    fn an_oauth1_request_is_printed_already_signed() {
+        let mut r = request();
+        r.auth = Auth::OAuth1 {
+            consumer_key: "ck".into(),
+            consumer_secret: "cs".into(),
+            token: "tok".into(),
+            token_secret: "ts".into(),
+            signature_method: crate::model::OAuth1Signature::HmacSha1,
+        };
+        let out = export_with(&r, true, &ExecOptions::default()).command;
+        assert!(out.contains("-H 'Authorization: OAuth oauth_consumer_key=\"ck\""), "{out}");
+        assert!(out.contains("oauth_signature=\"") && out.contains("oauth_token=\"tok\""), "{out}");
+        assert_eq!(out.matches("Authorization:").count(), 1, "and it is the only Authorization there is: {out}");
     }
 }

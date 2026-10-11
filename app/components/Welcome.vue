@@ -20,27 +20,27 @@ const recentSends = computed(() => store.history.slice(0, 8))
 const summary = computed(() => {
   const parts: string[] = []
   const { requests, folders } = counts.value
-  parts.push(requests === 1 ? '1 request' : `${requests} requests`)
-  if (folders) parts.push(folders === 1 ? '1 folder' : `${folders} folders`)
+  parts.push(requests === 1 ? t('1 request') : t('{n} requests', { n: requests }))
+  if (folders) parts.push(folders === 1 ? t('1 folder') : t('{n} folders', { n: folders }))
   const envs = store.environments.length
-  parts.push(envs === 1 ? '1 environment' : `${envs} environments`)
+  parts.push(envs === 1 ? t('1 environment') : t('{n} environments', { n: envs }))
   return parts.join(' · ')
 })
 
 const tips = [
-  { keys: [modKey, '↵'], what: 'Send' },
-  { keys: [modKey, 'S'], what: 'Save the request to its file' },
-  { keys: [modKey, 'N'], what: 'New request' },
-  { keys: [modKey, 'P'], what: 'Jump to a request by name' },
-  { keys: [modKey, 'V'], what: 'A curl command pasted into the URL fills the request' },
+  { keys: [modKey, '↵'], what: t('Send') },
+  { keys: [modKey, 'S'], what: t('Save the request to its file') },
+  { keys: [modKey, 'N'], what: t('New request') },
+  { keys: [modKey, 'P'], what: t('Jump to a request by name') },
+  { keys: [modKey, 'V'], what: t('A curl command pasted into the URL fills the request') },
 ]
 
 function ago(at: number) {
   const minutes = Math.max(0, Math.round((Date.now() - at) / 60_000))
-  if (minutes < 1) return 'just now'
-  if (minutes < 60) return `${minutes} min ago`
+  if (minutes < 1) return t('just now')
+  if (minutes < 60) return t('{n} min ago', { n: minutes })
   const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours} h ago`
+  if (hours < 24) return t('{n} h ago', { n: hours })
   return new Date(at).toLocaleDateString()
 }
 </script>
@@ -49,26 +49,25 @@ function ago(at: number) {
   <section class="welcome">
     <!-- No collection yet -->
     <div v-if="!store.isOpen" class="inner">
-      <h1>Open a collection</h1>
+      <h1>{{ t('Open a collection') }}</h1>
       <p class="lede">
-        A collection is a folder of YAML files — one per request — usually kept in the
-        repository of the API it describes.
+        {{ t('A collection is a folder of YAML files — one per request — usually kept in the repository of the API it describes.') }}
       </p>
 
       <div class="actions">
         <button type="button" class="btn btn-primary" @click="store.browseAndOpen()">
-          <UiIcon name="folder-open" :size="15" />Open a folder
+          <UiIcon name="folder-open" :size="15" />{{ t('Open a folder') }}
         </button>
         <button type="button" class="btn" @click="store.browseAndInit()">
-          <UiIcon name="collection" :size="15" />New collection
+          <UiIcon name="collection" :size="15" />{{ t('New collection') }}
         </button>
         <button type="button" class="btn btn-quiet" @click="store.browseAndImport()">
-          <UiIcon name="import" :size="15" />Import
+          <UiIcon name="import" :size="15" />{{ t('Import') }}
         </button>
       </div>
 
       <div v-if="recentCollections.length" class="block">
-        <h2 class="silk">Recent</h2>
+        <h2 class="silk">{{ t('Recent') }}</h2>
         <ul class="list">
           <li v-for="item in recentCollections" :key="item.path">
             <button type="button" class="line" :title="item.path" @click="store.open(item.path)">
@@ -87,24 +86,23 @@ function ago(at: number) {
       <p class="path mono">{{ store.root }}</p>
       <p class="lede">{{ summary }}</p>
       <p v-if="store.root && store.root === store.defaultRoot" class="lede personal">
-        This is your own collection, kept in the folder above. To keep requests next to the
-        code they exercise, open a folder inside that repository instead — the files are the same.
+        {{ t('This is your own collection, kept in the folder above. To keep requests next to the code they exercise, open a folder inside that repository instead — the files are the same.') }}
       </p>
 
       <div class="actions">
         <button type="button" class="btn btn-primary" @click="store.createRequest(null)">
-          <UiIcon name="plus" :size="15" />New request
+          <UiIcon name="plus" :size="15" />{{ t('New request') }}
         </button>
         <button type="button" class="btn" @click="store.curlDialog = { mode: 'create', parent: null }">
-          <UiIcon name="import" :size="15" />From a cURL command
+          <UiIcon name="import" :size="15" />{{ t('From a cURL command') }}
         </button>
         <button type="button" class="btn btn-quiet" @click="startCreatingFolder(null)">
-          <UiIcon name="folder-plus" :size="15" />New folder
+          <UiIcon name="folder-plus" :size="15" />{{ t('New folder') }}
         </button>
       </div>
 
       <div v-if="recentSends.length" class="block">
-        <h2 class="silk">Recently sent</h2>
+        <h2 class="silk">{{ t('Recently sent') }}</h2>
         <ul class="list">
           <li v-for="entry in recentSends" :key="entry.id">
             <button type="button" class="line" :title="`${entry.method} ${entry.url}`" @click="store.openHistory(entry.id)">
@@ -119,7 +117,7 @@ function ago(at: number) {
       </div>
 
       <div class="block tips">
-        <h2 class="silk">Keys</h2>
+        <h2 class="silk">{{ t('Keys') }}</h2>
         <dl>
           <template v-for="tip in tips" :key="tip.what">
             <dt><span v-for="key in tip.keys" :key="key" class="kbd">{{ key }}</span></dt>
@@ -134,6 +132,7 @@ function ago(at: number) {
 <style scoped>
 /* Anchored top-left like the rest of the tool, not centred like a landing page. */
 .welcome {
+  flex: 1;
   display: flex;
   align-items: flex-start;
   min-height: 0;
@@ -145,10 +144,10 @@ function ago(at: number) {
 
 h1 {
   margin: 0;
-  font-weight: 600;
+  font-weight: 700;
   font-size: var(--t-display);
   line-height: 1.2;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.03em;
 }
 .path { margin: 4px 0 0; color: var(--faint); font-size: var(--t-meta); word-break: break-all; }
 .lede { margin: var(--s-3) 0 0; max-width: 56ch; color: var(--ink-2); font-size: var(--t-body); line-height: 1.55; }
@@ -160,8 +159,7 @@ h1 {
 .block { width: 100%; margin-top: var(--s-8); display: grid; gap: var(--s-2); }
 .block h2 { margin: 0; }
 
-.list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
-.list li { border-bottom: 1px solid var(--line-soft); }
+.list { list-style: none; margin: 0; padding: 0; }
 .line {
   display: flex;
   align-items: center;
@@ -169,13 +167,14 @@ h1 {
   width: 100%;
   height: 34px;
   padding: 0 var(--s-2);
+  border-radius: var(--r-sm);
   text-align: left;
   color: var(--ink-2);
   transition: background var(--dur) var(--ease);
 }
 .line:hover { background: var(--hover); color: var(--ink); }
 .line .glyph { color: var(--silk); }
-.line .method { width: 36px; flex: none; }
+.line .method { width: 40px; flex: none; }
 .line .main { flex: none; max-width: 40%; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .line .side { flex: 1; min-width: 0; color: var(--faint); font-size: var(--t-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .line .status { flex: none; font-size: var(--t-meta); font-weight: 600; color: var(--silk); }

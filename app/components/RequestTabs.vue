@@ -9,7 +9,7 @@ function requestOf(index: number) {
   return index === store.activeTab ? store.request : store.tabs[index]?.request
 }
 
-const nameOf = (index: number) => requestOf(index)?.name?.trim() || 'Untitled'
+const nameOf = (index: number) => requestOf(index)?.name?.trim() || t('Untitled')
 const methodOf = (index: number) => requestOf(index)?.method?.toUpperCase() ?? 'GET'
 
 function isDirty(index: number) {
@@ -23,7 +23,7 @@ function isReplay(index: number) {
 const responseOf = (index: number) => (index === store.activeTab ? store.response : store.tabs[index]?.response)
 const toneOf = (index: number) => statusTone(responseOf(index)?.status)
 
-useShortcut('mod+w', 'Close the request', () => store.closeTab(store.activeTab))
+useShortcut('mod+w', t('Close the request'), () => store.closeTab(store.activeTab))
 
 // Dragging a tab moves it; the store keeps the active one active.
 const dragging = ref<number | null>(null)
@@ -54,7 +54,7 @@ async function choose(action: 'close' | 'others' | 'right') {
 </script>
 
 <template>
-  <div v-if="store.isOpen" class="tabs" role="tablist" aria-label="Open requests">
+  <div v-if="store.isOpen" class="tabs" role="tablist" :aria-label="t('Open requests')">
     <div
       v-for="(tab, i) in store.tabs"
       :key="i"
@@ -72,48 +72,48 @@ async function choose(action: 'close' | 'others' | 'right') {
         role="tab"
         class="face"
         :aria-selected="i === store.activeTab"
-        :title="tab.id ?? 'Not saved to a file'"
+        :title="tab.id ?? t('Not saved to a file')"
         @click="store.switchTab(i)"
         @auxclick.middle.prevent="store.closeTab(i)"
       >
         <span class="method" :data-method="methodOf(i)">{{ methodOf(i) }}</span>
         <span class="label">{{ nameOf(i) }}</span>
-        <span v-if="responseOf(i)" class="tab-status num" :class="toneOf(i)" :title="`Last response: ${responseOf(i)!.status} in ${responseOf(i)!.durationMs} ms`">{{ responseOf(i)!.status }}</span>
+        <span v-if="responseOf(i)" class="tab-status num" :class="toneOf(i)" :title="t('Last response: {status} in {ms} ms', { status: responseOf(i)!.status, ms: responseOf(i)!.durationMs })">{{ responseOf(i)!.status }}</span>
         <UiIcon v-if="isReplay(i)" name="history" :size="12" class="replay" />
       </button>
       <button
         type="button"
         class="close"
-        :aria-label="`Close ${nameOf(i)}`"
-        :title="isDirty(i) ? 'Unsaved changes' : 'Close'"
+        :aria-label="t('Close {name}', { name: nameOf(i) })"
+        :title="isDirty(i) ? t('Unsaved changes') : t('Close')"
         @click="store.closeTab(i)"
       >
         <span v-if="isDirty(i)" class="dot" />
         <UiIcon v-else name="x" :size="12" />
       </button>
     </div>
-    <button type="button" class="add" aria-label="New request" title="New request" @click="store.createRequest(null)">
+    <button type="button" class="add" :aria-label="t('New request')" :title="t('New request')" @click="store.createRequest(null)">
       <UiIcon name="plus" :size="14" />
     </button>
 
     <div v-if="menu" class="catcher" @mousedown.self="menu = null" @contextmenu.prevent="menu = null">
-      <div class="menu" role="menu" aria-label="Tab" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }">
-        <button type="button" role="menuitem" class="item" @click="choose('close')">Close</button>
-        <button type="button" role="menuitem" class="item" :disabled="store.tabs.length < 2" @click="choose('others')">Close others</button>
-        <button type="button" role="menuitem" class="item" :disabled="menu.index >= store.tabs.length - 1" @click="choose('right')">Close to the right</button>
+      <div class="menu" role="menu" :aria-label="t('Tab')" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }">
+        <button type="button" role="menuitem" class="item" @click="choose('close')">{{ t('Close') }}</button>
+        <button type="button" role="menuitem" class="item" :disabled="store.tabs.length < 2" @click="choose('others')">{{ t('Close others') }}</button>
+        <button type="button" role="menuitem" class="item" :disabled="menu.index >= store.tabs.length - 1" @click="choose('right')">{{ t('Close to the right') }}</button>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* Open requests lie on the bench as pills; the one on screen is a panel's colour. */
 .tabs {
   display: flex;
-  align-items: stretch;
-  height: 36px;
-  padding: 0 var(--s-2) 0 0;
-  border-bottom: 1px solid var(--line);
-  background: var(--bg-0);
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  margin-bottom: var(--gap);
   overflow-x: auto;
   scrollbar-width: none;
   flex: none;
@@ -125,27 +125,17 @@ async function choose(action: 'close' | 'others' | 'right') {
   display: flex;
   align-items: center;
   flex: none;
+  height: 32px;
   max-width: 220px;
-  margin-bottom: -1px;
-  border-right: 1px solid var(--line);
+  border-radius: var(--r-full);
   color: var(--silk);
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-.tab:hover { background: var(--hover); color: var(--ink-2); }
-/* The open request's tab is the surface itself, joined to the pane below. */
+.tab:hover { background: var(--press); color: var(--ink-2); }
 .tab.on {
   background: var(--bg-1);
   color: var(--ink);
-  border-bottom: 1px solid var(--bg-1);
-}
-.tab.on::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  height: 2px;
-  background: var(--accent);
+  box-shadow: var(--shadow-panel);
 }
 
 .face {
@@ -154,7 +144,8 @@ async function choose(action: 'close' | 'others' | 'right') {
   gap: var(--s-2);
   min-width: 0;
   height: 100%;
-  padding: 0 4px 0 var(--s-3);
+  padding: 0 4px 0 9px;
+  border-radius: var(--r-full);
   color: inherit;
 }
 .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-small); }
@@ -190,7 +181,7 @@ async function choose(action: 'close' | 'others' | 'right') {
   width: 20px;
   height: 20px;
   margin-right: 6px;
-  border-radius: var(--r-xs);
+  border-radius: 50%;
   color: var(--faint);
 }
 .close:hover { background: var(--press); color: var(--ink); }
@@ -200,8 +191,10 @@ async function choose(action: 'close' | 'others' | 'right') {
   display: grid;
   place-items: center;
   width: 32px;
+  height: 32px;
   flex: none;
+  border-radius: 50%;
   color: var(--silk);
 }
-.add:hover { color: var(--ink); background: var(--hover); }
+.add:hover { color: var(--ink); background: var(--press); }
 </style>

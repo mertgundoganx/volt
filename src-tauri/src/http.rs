@@ -45,6 +45,17 @@ pub struct ExecOptions {
     /// that ask for one. Relative paths are taken from the collection root.
     #[serde(default)]
     pub client_cert: Option<String>,
+    /// The passphrase of a client certificate that is a PKCS#12 archive
+    /// (`.p12`, `.pfx`). It lives in the app's settings and nowhere else:
+    /// `RequestOptions` has no such field, because a passphrase written into
+    /// a request is a passphrase committed with it.
+    #[serde(default)]
+    pub client_cert_password: Option<String>,
+    /// Path to a PEM of one or more CA certificates, trusted in addition to
+    /// the built-in roots — for a server signed by a company's own authority.
+    /// Relative paths are taken from the collection root.
+    #[serde(default)]
+    pub ca_cert: Option<String>,
 }
 
 impl Default for ExecOptions {
@@ -56,6 +67,8 @@ impl Default for ExecOptions {
             proxy: None,
             send_cookies: true,
             client_cert: None,
+            client_cert_password: None,
+            ca_cert: None,
         }
     }
 }
@@ -73,6 +86,25 @@ impl ExecOptions {
             proxy: over.proxy.clone().or_else(|| self.proxy.clone()),
             send_cookies: self.send_cookies,
             client_cert: over.client_cert.clone().or_else(|| self.client_cert.clone()),
+            client_cert_password: self.client_cert_password.clone(),
+            ca_cert: over.ca_cert.clone().or_else(|| self.ca_cert.clone()),
+        }
+    }
+
+    /// These options as the connection needs them: paths resolved against the
+    /// collection, and nothing about timeouts or redirects, which belong to a
+    /// request rather than to a socket. An empty path is nothing said, so a
+    /// request can clear a certificate the settings name by setting it to "".
+    pub fn transport(&self, root: &Path) -> crate::wire::Transport {
+        let path = |value: &Option<String>| {
+            value.as_deref().map(str::trim).filter(|p| !p.is_empty()).map(|p| root.join(p))
+        };
+        crate::wire::Transport {
+            verify_tls: self.verify_tls,
+            ca_cert: path(&self.ca_cert),
+            client_cert: path(&self.client_cert),
+            client_cert_password: self.client_cert_password.clone().filter(|p| !p.is_empty()),
+            proxy: self.proxy.clone(),
         }
     }
 
@@ -151,6 +183,9 @@ pub struct Plan {
     /// AWS credentials. The signature covers the finished request, so it is
     /// added after the plan rather than inside it.
     pub aws: Option<AwsAuth>,
+    /// OAuth 1.0a credentials. Signed over the finished request as well, and
+    /// with a new nonce each time, so also after the plan.
+    pub oauth1: Option<OAuth1Auth>,
     pub body: PlanBody,
     /// The header an API key is sent in, when it is sent in one. Only
     /// `execute` reads it: reqwest strips `Authorization` and `Cookie` across
@@ -168,6 +203,40 @@ pub struct AwsAuth {
     pub region: String,
     pub service: String,
     pub session_token: Option<String>,
+}
+
+/// Resolved OAuth 1.0a credentials, for `oauth1::sign`.
+#[derive(Debug, Clone)]
+pub struct OAuth1Auth {
+    pub consumer_key: String,
+    pub consumer_secret: String,
+    pub token: String,
+    pub token_secret: String,
+    pub method: crate::model::OAuth1Signature,
+}
+
+impl OAuth1Auth {
+    /// The `Authorization` header for `plan`, signed as of now. `execute` and
+    /// the curl printer both call this, so a copied command carries a
+    /// signature of the same making as the one Send sends.
+    pub fn header(&self, plan: &Plan) -> String {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        crate::oauth1::sign(
+            plan,
+            &crate::oauth1::Credentials {
+                consumer_key: &self.consumer_key,
+                consumer_secret: &self.consumer_secret,
+                token: &self.token,
+                token_secret: &self.token_secret,
+                method: self.method,
+            },
+            now,
+            &crate::oauth1::nonce(),
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -297,6 +366,7 @@ pub fn plan(request: &Request, ctx: &PlanContext<'_>) -> Result<Plan> {
     let mut digest = None;
     let mut ntlm = None;
     let mut aws = None;
+    let mut oauth1 = None;
     match auth {
         Auth::None | Auth::Inherit => {}
         Auth::Bearer { token } => {
@@ -338,13 +408,23 @@ pub fn plan(request: &Request, ctx: &PlanContext<'_>) -> Result<Plan> {
                 ApiKeyLocation::Query => query.push((key, value)),
             }
         }
+        Auth::OAuth1 { consumer_key, consumer_secret, token, token_secret, signature_method } => {
+            headers.retain(|(name, _)| !name.eq_ignore_ascii_case("authorization"));
+            oauth1 = Some(OAuth1Auth {
+                consumer_key: resolve(consumer_key).trim().to_string(),
+                consumer_secret: resolve(consumer_secret).trim().to_string(),
+                token: resolve(token).trim().to_string(),
+                token_secret: resolve(token_secret).trim().to_string(),
+                method: *signature_method,
+            });
+        }
     }
 
     let url = join_query(&raw_url, &query, ctx.lenient_url)?;
 
     missing.sort();
     missing.dedup();
-    Ok(Plan { method, url, headers, basic, digest, ntlm, aws, body, api_key_header, missing })
+    Ok(Plan { method, url, headers, basic, digest, ntlm, aws, oauth1, body, api_key_header, missing })
 }
 
 /// Replace every header of the same name, then add this one.
@@ -481,33 +561,11 @@ pub async fn execute(request: &Request, ctx: &ExecContext<'_>) -> Result<HttpRes
     } else {
         reqwest::redirect::Policy::none()
     };
-    let mut builder = reqwest::Client::builder()
+    let builder = reqwest::Client::builder()
         .timeout(Duration::from_millis(options.timeout_ms))
-        .danger_accept_invalid_certs(!options.verify_tls)
         .redirect(redirects)
         .user_agent(concat!("volt/", env!("CARGO_PKG_VERSION")));
-
-    match options.proxy_url() {
-        Some(url) => {
-            let proxy = reqwest::Proxy::all(url).map_err(|e| Error::Invalid(format!("proxy `{url}`: {e}")))?;
-            builder = builder.proxy(proxy);
-        }
-        // An explicit empty proxy means "go direct", which also turns off the
-        // HTTP_PROXY variables reqwest would otherwise pick up by itself.
-        None if options.proxy.is_some() => builder = builder.no_proxy(),
-        None => {}
-    }
-    // A client certificate the server asks for. rustls wants one PEM holding
-    // both the certificate and its key; a passphrase-protected key is not
-    // something it can open, which is why there is no password field.
-    if let Some(cert) = options.client_cert.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
-        let path = ctx.root.join(cert);
-        let pem = std::fs::read(&path).map_err(|e| Error::io(path.to_string_lossy().into_owned(), e))?;
-        let identity = reqwest::Identity::from_pem(&pem)
-            .map_err(|e| Error::Invalid(format!("client certificate `{cert}`: {e}")))?;
-        builder = builder.identity(identity);
-    }
-
+    let mut builder = configure(builder, &options.transport(ctx.root))?;
 
     // One jar per collection, handed in by the caller. Without it every send
     // builds a fresh client and a session cookie never survives to the next
@@ -570,6 +628,14 @@ pub async fn execute(request: &Request, ctx: &ExecContext<'_>) -> Result<HttpRes
                 .map_err(|_| Error::Invalid("the AWS signature is not a valid header".into()))?;
             headers.insert(name, value);
         }
+    }
+
+    // OAuth 1.0a signs the method, the address and the form, none of which
+    // change after this point either.
+    if let Some(credentials) = &plan.oauth1 {
+        let value = HeaderValue::from_str(&credentials.header(&plan))
+            .map_err(|_| Error::Invalid("the OAuth signature is not a valid header".into()))?;
+        headers.insert(reqwest::header::AUTHORIZATION, value);
     }
 
     let sent_headers: Vec<(String, String)> = headers
@@ -772,6 +838,53 @@ pub async fn execute(request: &Request, ctx: &ExecContext<'_>) -> Result<HttpRes
         version,
         missing_vars: missing,
     })
+}
+
+/// Lay a transport onto a reqwest client: certificate checking, extra roots,
+/// the client certificate and the proxy.
+///
+/// One function, because `execute` is not the only thing that builds a
+/// client — server-sent events do too — and a setting that reaches one of
+/// them and not the other is how "TLS off" came to mean different things in
+/// different panes.
+pub(crate) fn configure(
+    builder: reqwest::ClientBuilder,
+    transport: &crate::wire::Transport,
+) -> Result<reqwest::ClientBuilder> {
+    let mut builder = builder.danger_accept_invalid_certs(!transport.verify_tls);
+
+    match transport.proxy.as_deref().map(str::trim) {
+        // An explicit empty proxy means "go direct", which also turns off the
+        // HTTP_PROXY variables reqwest would otherwise pick up by itself.
+        Some("") => builder = builder.no_proxy(),
+        Some(url) => {
+            let proxy = reqwest::Proxy::all(url).map_err(|e| Error::Invalid(format!("proxy `{url}`: {e}")))?;
+            builder = builder.proxy(proxy);
+        }
+        None => {}
+    }
+
+    // Merged with the roots reqwest already trusts, not in place of them.
+    if let Some(path) = &transport.ca_cert {
+        let roots = crate::wire::read_roots(path)?
+            .iter()
+            .map(|der| reqwest::Certificate::from_der(der.as_ref()))
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| Error::Invalid(format!("CA certificate `{}`: {e}", path.display())))?;
+        builder = builder.tls_certs_merge(roots);
+    }
+
+    // A client certificate the server asks for. It is read by `wire`, the
+    // same reader a WebSocket and a gRPC call use, and handed over as PEM:
+    // that is the one form reqwest takes with rustls, and it is how a PKCS#12
+    // archive gets here without a second TLS stack to open it.
+    if let Some(path) = &transport.client_cert {
+        let identity = crate::wire::read_identity(path, transport.client_cert_password.as_deref())?;
+        let identity = reqwest::Identity::from_pem(identity.pem().as_bytes())
+            .map_err(|e| Error::Invalid(format!("client certificate `{}`: {e}", path.display())))?;
+        builder = builder.identity(identity);
+    }
+    Ok(builder)
 }
 
 /// reqwest's Display is terse; surface the part that tells the user what broke.
@@ -1109,5 +1222,260 @@ mod tests {
             Err(Error::Http(message)) => assert_eq!(message, CANCELLED),
             other => panic!("expected a cancellation, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn certificates_resolve_like_every_other_send_option() {
+        // What the UI sends, in the UI's spelling.
+        let app: ExecOptions = serde_json::from_str(
+            r#"{"caCert": "C:/certs/corp-ca.pem", "clientCert": "certs/me.p12", "clientCertPassword": "hunter2"}"#,
+        )
+        .expect("the UI payload should deserialize");
+        assert_eq!(app.ca_cert.as_deref(), Some("C:/certs/corp-ca.pem"));
+        assert_eq!(app.client_cert_password.as_deref(), Some("hunter2"));
+
+        let mut request = Request { method: "GET".into(), url: "https://x.test".into(), ..Default::default() };
+        let merged = app.for_request(&request);
+        assert_eq!(merged.ca_cert.as_deref(), Some("C:/certs/corp-ca.pem"), "no override: the settings stand");
+        assert_eq!(merged.client_cert_password.as_deref(), Some("hunter2"));
+
+        // In a request's own YAML it is snake_case, and it wins.
+        let own: crate::model::RequestOptions = serde_yaml_ng::from_str("ca_cert: certs/staging-ca.pem\n").unwrap();
+        assert_eq!(own.ca_cert.as_deref(), Some("certs/staging-ca.pem"));
+        assert!(!own.is_empty());
+        request.options = Some(own);
+        let merged = app.for_request(&request);
+        assert_eq!(merged.ca_cert.as_deref(), Some("certs/staging-ca.pem"));
+        assert_eq!(merged.client_cert.as_deref(), Some("certs/me.p12"), "what the request does not name is left alone");
+
+        // Relative paths are the collection's, absolute ones are what they say.
+        let root = Path::new("/collections/shop");
+        let transport = merged.transport(root);
+        assert_eq!(transport.ca_cert, Some(root.join("certs/staging-ca.pem")));
+        assert_eq!(transport.client_cert, Some(root.join("certs/me.p12")));
+        assert_eq!(transport.client_cert_password.as_deref(), Some("hunter2"));
+        assert!(transport.verify_tls);
+
+        // An empty path on the request is "none for this one", not a file.
+        request.options = Some(crate::model::RequestOptions { ca_cert: Some("  ".into()), ..Default::default() });
+        assert_eq!(app.for_request(&request).transport(root).ca_cert, None);
+
+        // A request has nowhere to keep a passphrase, so one cannot be committed.
+        let yaml = serde_yaml_ng::to_string(&crate::model::RequestOptions {
+            ca_cert: Some("ca.pem".into()),
+            client_cert: Some("me.p12".into()),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(yaml, "client_cert: me.p12\nca_cert: ca.pem\n");
+        assert!(serde_yaml_ng::from_str::<crate::model::RequestOptions>("{}").unwrap().ca_cert.is_none());
+    }
+
+    /// An HTTPS endpoint on loopback: a real handshake, then one fixed answer.
+    async fn https_server(acceptor: tokio_rustls::TlsAcceptor) -> u16 {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((socket, _)) = listener.accept().await {
+                let acceptor = acceptor.clone();
+                tokio::spawn(async move {
+                    // A client that does not trust us, or that we do not trust,
+                    // ends here; the next connection is a new try.
+                    let Ok(mut tls) = acceptor.accept(socket).await else { return };
+                    let mut head = Vec::new();
+                    let mut chunk = [0u8; 1024];
+                    while !head.windows(4).any(|window| window == b"\r\n\r\n") {
+                        match tls.read(&mut chunk).await {
+                            Ok(read) if read > 0 => head.extend_from_slice(&chunk[..read]),
+                            _ => return,
+                        }
+                    }
+                    let _ = tls
+                        .write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                        .await;
+                    let _ = tls.shutdown().await;
+                });
+            }
+        });
+        port
+    }
+
+    async fn get(url: &str, root: &Path, request_options: Option<crate::model::RequestOptions>, options: ExecOptions) -> Result<HttpResponse> {
+        let request = Request { name: "Probe".into(), method: "GET".into(), url: url.into(), options: request_options, ..Default::default() };
+        let vars = HashMap::new();
+        let scopes = crate::collection::Scopes::default();
+        execute(&request, &ExecContext { root, vars: &vars, scopes: &scopes, options: &options, cookies: None }).await
+    }
+
+    /// Direct, so a proxy in the environment cannot get between the test and
+    /// its own server.
+    fn direct() -> ExecOptions {
+        ExecOptions { timeout_ms: 10_000, proxy: Some(String::new()), ..Default::default() }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_server_signed_by_a_private_authority_is_trusted_once_its_ca_is_named() {
+        let pki = crate::wire::testing::Pki::new("http-ca");
+        let port = https_server(pki.acceptor(false, &[])).await;
+        let url = format!("https://localhost:{port}/");
+
+        let refused = get(&url, &pki.dir, None, direct()).await;
+        assert!(refused.is_err(), "an authority nobody vouched for is not trusted: {refused:?}");
+
+        // From the settings, as an absolute path.
+        let options = ExecOptions { ca_cert: Some(pki.ca.to_string_lossy().into_owned()), ..direct() };
+        let response = get(&url, Path::new("."), None, options).await.expect("the CA makes it trusted");
+        assert_eq!((response.status, response.body.as_str()), (200, "ok"));
+
+        // From the request's own options, relative to the collection root.
+        let own = crate::model::RequestOptions { ca_cert: Some("ca.pem".into()), ..Default::default() };
+        let response = get(&url, &pki.dir, Some(own), direct()).await.expect("and so does the request's own");
+        assert_eq!(response.status, 200);
+
+        // A file that is not there is an error about the file, said before any
+        // connection is tried.
+        let options = ExecOptions { ca_cert: Some("missing.pem".into()), ..direct() };
+        let said = get(&url, &pki.dir, None, options).await.unwrap_err().to_string();
+        assert!(said.contains("missing.pem"), "{said}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_client_certificate_is_presented_from_a_pem_or_a_pkcs12_archive() {
+        let pki = crate::wire::testing::Pki::new("http-mtls");
+        let port = https_server(pki.acceptor(true, &[])).await;
+        let url = format!("https://localhost:{port}/");
+        let trusting = || ExecOptions { ca_cert: Some("ca.pem".into()), ..direct() };
+
+        let anonymous = get(&url, &pki.dir, None, trusting()).await;
+        assert!(anonymous.is_err(), "the server wants a certificate and got none: {anonymous:?}");
+
+        let pem = ExecOptions { client_cert: Some("client.pem".into()), ..trusting() };
+        assert_eq!(get(&url, &pki.dir, None, pem).await.expect("a PEM identity").status, 200);
+
+        let archive = ExecOptions {
+            client_cert: Some("client.p12".into()),
+            client_cert_password: Some(crate::wire::testing::PASSPHRASE.into()),
+            ..trusting()
+        };
+        assert_eq!(get(&url, &pki.dir, None, archive).await.expect("a PKCS#12 identity").status, 200);
+
+        let wrong = ExecOptions {
+            client_cert: Some("client.p12".into()),
+            client_cert_password: Some("nope".into()),
+            ..trusting()
+        };
+        let said = get(&url, &pki.dir, None, wrong).await.unwrap_err().to_string();
+        assert!(said.contains("passphrase"), "{said}");
+    }
+
+    #[test]
+    fn oauth1_travels_with_the_plan_and_replaces_an_authorization_header() {
+        let request = Request {
+            method: "GET".into(),
+            url: "https://api.test/items".into(),
+            headers: vec![kv("Authorization", "Bearer stale")],
+            auth: Auth::OAuth1 {
+                consumer_key: "{{userId}}".into(),
+                consumer_secret: " shh ".into(),
+                token: String::new(),
+                token_secret: String::new(),
+                signature_method: crate::model::OAuth1Signature::HmacSha256,
+            },
+            ..Default::default()
+        };
+        let plan = plan_of(&request, &[], &Auth::None, false).unwrap();
+        assert!(plan.headers.is_empty(), "the signature is the Authorization header: {:?}", plan.headers);
+        let credentials = plan.oauth1.as_ref().expect("the credentials are resolved into the plan");
+        assert_eq!(credentials.consumer_key, "42", "variables resolve like anywhere else");
+        assert_eq!(credentials.consumer_secret, "shh", "and a stray space is not part of a secret");
+
+        let header = credentials.header(&plan);
+        assert!(header.starts_with("OAuth oauth_consumer_key=\"42\""), "{header}");
+        assert!(header.contains("oauth_signature_method=\"HMAC-SHA256\""), "{header}");
+        assert_ne!(header, credentials.header(&plan), "a new nonce every time it is signed");
+    }
+
+    #[test]
+    fn oauth1_is_written_in_yaml_the_way_the_protocol_names_things() {
+        let auth = Auth::OAuth1 {
+            consumer_key: "ck".into(),
+            consumer_secret: "{{consumerSecret}}".into(),
+            token: String::new(),
+            token_secret: String::new(),
+            signature_method: crate::model::OAuth1Signature::HmacSha1,
+        };
+        let yaml = serde_yaml_ng::to_string(&auth).unwrap();
+        assert_eq!(
+            yaml,
+            "type: oauth1\nconsumer_key: ck\nconsumer_secret: '{{consumerSecret}}'\nsignature_method: HMAC-SHA1\n",
+            "an empty token is not written"
+        );
+
+        // And the least a hand-written file has to say.
+        let read: Auth = serde_yaml_ng::from_str("type: oauth1\nconsumer_key: ck\nconsumer_secret: cs\n").unwrap();
+        let Auth::OAuth1 { token, signature_method, .. } = read else { panic!("{read:?}") };
+        assert!(token.is_empty());
+        assert_eq!(signature_method, crate::model::OAuth1Signature::HmacSha1, "HMAC-SHA1 unless it says otherwise");
+
+        let json = serde_json::to_value(&Auth::OAuth1 {
+            consumer_key: "ck".into(),
+            consumer_secret: "cs".into(),
+            token: "t".into(),
+            token_secret: "ts".into(),
+            signature_method: crate::model::OAuth1Signature::HmacSha256,
+        })
+        .unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({ "type": "oauth1", "consumer_key": "ck", "consumer_secret": "cs", "token": "t",
+                                "token_secret": "ts", "signature_method": "HMAC-SHA256" }),
+            "what crosses to the UI"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_oauth1_request_goes_out_with_its_signature_in_the_header() {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let seen = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = vec![0u8; 8192];
+            let read = socket.read(&mut buffer).await.unwrap_or(0);
+            let _ = socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
+            String::from_utf8_lossy(&buffer[..read]).to_string()
+        });
+
+        let request = Request {
+            name: "Signed".into(),
+            method: "POST".into(),
+            url: format!("http://127.0.0.1:{port}/statuses?include=true"),
+            body: Body::UrlEncoded { fields: vec![kv("status", "hello world")] },
+            auth: Auth::OAuth1 {
+                consumer_key: "ck".into(),
+                consumer_secret: "cs".into(),
+                token: "tk".into(),
+                token_secret: "ts".into(),
+                signature_method: crate::model::OAuth1Signature::HmacSha1,
+            },
+            ..Default::default()
+        };
+        let vars = HashMap::new();
+        let scopes = crate::collection::Scopes::default();
+        let options = direct();
+        let response = execute(&request, &ExecContext { root: Path::new("."), vars: &vars, scopes: &scopes, options: &options, cookies: None })
+            .await
+            .expect("it sends");
+
+        let sent = seen.await.unwrap();
+        let line = sent.lines().find(|line| line.to_ascii_lowercase().starts_with("authorization:")).expect("the header went out");
+        assert!(line.contains("OAuth oauth_consumer_key=\"ck\""), "{line}");
+        assert!(line.contains("oauth_token=\"tk\"") && line.contains("oauth_signature=\""), "{line}");
+        assert!(sent.ends_with("status=hello%20world"), "the form goes out in the encoding that was signed: {sent}");
+        // The timeline shows what was sent, signature included.
+        assert!(response.sent_headers.iter().any(|h| h.name == "authorization" && h.value.starts_with("OAuth ")));
     }
 }

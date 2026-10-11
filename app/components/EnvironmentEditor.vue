@@ -49,7 +49,7 @@ onMounted(async () => {
   }
   await nextTick()
   const index = draft.vars.findIndex((v) => v.name === wanted)
-  const inputs = document.querySelectorAll<HTMLInputElement>('.ui-dialog .table .row:not(.head) input[aria-label="Value"]')
+  const inputs = document.querySelectorAll<HTMLInputElement>(`.ui-dialog .table .row:not(.head) input[aria-label="${t('Value')}"]`)
   inputs[index]?.focus()
 })
 
@@ -83,8 +83,8 @@ const clash = computed(() => {
 })
 const unnamed = computed(() => drafts.value.some((d) => d.dirty && !d.name.trim()))
 const problem = computed(() => {
-  if (clash.value) return `Two environments are called “${clash.value}”. Give one of them a different name.`
-  if (unnamed.value) return 'An environment needs a name before it can be saved.'
+  if (clash.value) return t('Two environments are called “{name}”. Give one of them a different name.', { name: clash.value })
+  if (unnamed.value) return t('An environment needs a name before it can be saved.')
   return null
 })
 
@@ -226,22 +226,22 @@ async function save() {
 </script>
 
 <template>
-  <UiDialog :title="current?.name || 'Environments'" eyebrow="Environments" :width="780" @close="emit('close')">
+  <UiDialog :title="current?.name || t('Environments')" :eyebrow="t('Environments')" :width="780" @close="emit('close')">
     <template #title>
       <input
         v-if="current"
         ref="nameInput"
         v-model="name"
         class="env-name"
-        placeholder="Environment name"
-        aria-label="Environment name"
+        :placeholder="t('Environment name')"
+        :aria-label="t('Environment name')"
         spellcheck="false"
       >
-      <h2 v-else class="env-title">No environment</h2>
+      <h2 v-else class="env-title">{{ t('No environment') }}</h2>
     </template>
 
     <div class="layout">
-      <nav class="rail" aria-label="Environments">
+      <nav class="rail" :aria-label="t('Environments')">
         <button
           v-for="draft in drafts"
           :key="draft.key"
@@ -251,14 +251,14 @@ async function save() {
           :aria-current="draft.key === selected ? 'true' : undefined"
           @click="select(draft.key)"
         >
-          <span class="env-label mono">{{ draft.name.trim() || 'Untitled' }}</span>
-          <span v-if="draft.dirty" class="dot" title="Unsaved" />
+          <span class="env-label mono">{{ draft.name.trim() || t('Untitled') }}</span>
+          <span v-if="draft.dirty" class="dot" :title="t('Unsaved')" />
           <span v-else class="count num">{{ draft.vars.filter((v) => v.name).length }}</span>
         </button>
 
         <button type="button" class="env-row add" @click="addEnvironment">
           <UiIcon name="plus" :size="14" />
-          <span class="env-label">New environment</span>
+          <span class="env-label">{{ t('New environment') }}</span>
         </button>
       </nav>
 
@@ -266,40 +266,40 @@ async function save() {
         <p class="note">
           <UiIcon name="lock" :size="14" />
           <span>
-            Plain values are saved in <code>environments/*.yaml</code> and committed with the collection.
-            Values marked secret go to a gitignored <code>.env.&lt;environment&gt;</code> file instead.
+            {{ t('Plain values are saved in') }} <code>environments/*.yaml</code> {{ t('and committed with the collection.') }}
+            {{ t('Values marked secret go to a gitignored') }} <code>.env.&lt;environment&gt;</code> {{ t('file instead.') }}
           </span>
         </p>
 
         <p v-if="problem" class="save-warn" role="status">{{ problem }}</p>
         <p v-if="saveError" class="save-error mono" role="alert">{{ saveError }}</p>
         <p v-if="current?.copiedFrom" class="copied">
-          Variable names copied from <strong>{{ current.copiedFrom }}</strong>. Fill in the values this environment uses.
+          {{ t('Variable names copied from') }} <strong>{{ current.copiedFrom }}</strong>. {{ t('Fill in the values this environment uses.') }}
         </p>
 
         <div v-if="current" class="bar">
           <button type="button" class="btn btn-quiet btn-sm mode" :aria-pressed="bulk" @click="bulk ? (bulk = false) : openBulk()">
-            {{ bulk ? 'Table' : 'Bulk edit' }}
+            {{ bulk ? t('Table') : t('Bulk edit') }}
           </button>
         </div>
 
         <template v-if="current && bulk">
           <textarea
             class="field mono bulk"
-            aria-label="Variables as text"
+            :aria-label="t('Variables as text')"
             spellcheck="false"
             placeholder="baseUrl=https://api.example.com&#10;token=abc123  # secret"
             :value="bulkText"
             @input="parseBulk(($event.target as HTMLTextAreaElement).value)"
           />
-          <p class="bulk-hint">One per line, <code>name=value</code>. End a line with <code># secret</code> to keep that value out of the YAML.</p>
+          <p class="bulk-hint">{{ t('One per line,') }} <code>name=value</code>. {{ t('End a line with') }} <code># secret</code> {{ t('to keep that value out of the YAML.') }}</p>
         </template>
 
-        <div v-else-if="current" class="table" role="table" aria-label="Variables">
+        <div v-else-if="current" class="table" role="table" :aria-label="t('Variables')">
           <div class="row head" role="row">
-            <span role="columnheader" class="silk">Variable</span>
-            <span role="columnheader" class="silk">Value</span>
-            <span role="columnheader" class="silk center">Secret</span>
+            <span role="columnheader" class="silk">{{ t('Variable') }}</span>
+            <span role="columnheader" class="silk">{{ t('Value') }}</span>
+            <span role="columnheader" class="silk center">{{ t('Secret') }}</span>
             <span role="columnheader" />
           </div>
 
@@ -308,7 +308,7 @@ async function save() {
               class="field mono"
               :value="row.name"
               :placeholder="row.name ? '' : 'baseUrl'"
-              aria-label="Variable name"
+              :aria-label="t('Variable name')"
               spellcheck="false"
               @input="update(i, { name: ($event.target as HTMLInputElement).value })"
             >
@@ -318,7 +318,7 @@ async function save() {
                 :value="row.value"
                 :type="row.secret && !revealed.has(i) ? 'password' : 'text'"
                 :placeholder="row.name ? '' : 'https://api.example.com'"
-                aria-label="Value"
+                :aria-label="t('Value')"
                 spellcheck="false"
                 autocomplete="off"
                 @input="update(i, { value: ($event.target as HTMLInputElement).value })"
@@ -327,8 +327,8 @@ async function save() {
                 v-if="row.secret"
                 type="button"
                 class="icon-btn quiet sm reveal"
-                :aria-label="revealed.has(i) ? 'Hide value' : 'Show value'"
-                :title="revealed.has(i) ? 'Hide value' : 'Show value'"
+                :aria-label="revealed.has(i) ? t('Hide value') : t('Show value')"
+                :title="revealed.has(i) ? t('Hide value') : t('Show value')"
                 @click="toggleReveal(i)"
               >
                 <UiIcon :name="revealed.has(i) ? 'eye-off' : 'eye'" :size="14" />
@@ -341,22 +341,22 @@ async function save() {
                 :class="{ on: row.secret }"
                 :disabled="!row.name"
                 :aria-pressed="row.secret"
-                :aria-label="row.secret ? 'Secret: stored in .env' : 'Plain: stored in YAML'"
-                :title="row.secret ? 'Secret — stored in the gitignored .env file' : 'Plain — stored in the environment YAML'"
+                :aria-label="row.secret ? t('Secret: stored in .env') : t('Plain: stored in YAML')"
+                :title="row.secret ? t('Secret — stored in the gitignored .env file') : t('Plain — stored in the environment YAML')"
                 @click="update(i, { secret: !row.secret })"
               >
                 <UiIcon :name="row.secret ? 'lock' : 'unlock'" :size="14" />
               </button>
             </span>
             <span class="center">
-              <button v-if="row.name" type="button" class="icon-btn quiet sm" :aria-label="`Remove ${row.name}`" title="Remove" @click="removeVar(i)">
+              <button v-if="row.name" type="button" class="icon-btn quiet sm" :aria-label="t('Remove {name}', { name: row.name })" :title="t('Remove')" @click="removeVar(i)">
                 <UiIcon name="x" :size="14" />
               </button>
             </span>
           </div>
         </div>
 
-        <p v-else class="empty">Nothing to fill in yet. Add an environment to hold the variables your requests use.</p>
+        <p v-else class="empty">{{ t('Nothing to fill in yet. Add an environment to hold the variables your requests use.') }}</p>
       </div>
     </div>
 
@@ -365,16 +365,16 @@ async function save() {
         v-if="current"
         type="button"
         class="btn btn-quiet btn-sm"
-        :aria-label="`Delete ${current.name || 'environment'}`"
+        :aria-label="t('Delete {name}', { name: current.name || t('environment') })"
         @click="removeEnvironment"
       >
-        <UiIcon name="trash" :size="14" />Delete
+        <UiIcon name="trash" :size="14" />{{ t('Delete') }}
       </button>
-      <span v-if="current" class="silk counts">{{ named.length }} {{ named.length === 1 ? 'variable' : 'variables' }} · {{ secretCount }} secret</span>
+      <span v-if="current" class="silk counts">{{ named.length === 1 ? t('1 variable') : t('{n} variables', { n: named.length }) }} · {{ t('{n} secret', { n: secretCount }) }}</span>
       <span class="spacer" />
-      <button type="button" class="btn btn-quiet" @click="emit('close')">Cancel</button>
+      <button type="button" class="btn btn-quiet" @click="emit('close')">{{ t('Cancel') }}</button>
       <button type="button" class="btn btn-primary" :disabled="saving || !!problem || (!current && !pending)" @click="save">
-        {{ saving ? 'Saving' : pending > 1 ? `Save ${pending} environments` : 'Save environment' }}
+        {{ saving ? t('Saving') : pending > 1 ? t('Save {n} environments', { n: pending }) : t('Save environment') }}
       </button>
     </template>
   </UiDialog>
@@ -393,7 +393,7 @@ async function save() {
   letter-spacing: -0.012em;
 }
 .env-name:hover { background: var(--hover); }
-.env-name:focus { background: var(--well); border-color: var(--accent); }
+.env-name:focus { background: var(--well); border-color: var(--focus); }
 .env-title { margin: 0; font-weight: 700; font-size: 18px; }
 
 .layout { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: var(--s-5); align-items: start; }

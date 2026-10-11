@@ -3,6 +3,7 @@ import { createServer } from 'node:http'
 import { createHash } from 'node:crypto'
 
 export function startServer(port = 8787) {
+  let devicePolls = 0
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, `http://127.0.0.1:${port}`)
     const chunks = []
@@ -35,10 +36,25 @@ export function startServer(port = 8787) {
       const ok = req.headers.authorization === `Basic ${Buffer.from('user:pass').toString('base64')}`
       return json(ok ? 200 : 401, { ok }, ok ? {} : { 'www-authenticate': 'Basic realm="t"' })
     }
+    if (p === '/device') {
+      devicePolls = 0
+      return json(200, { device_code: 'dev-1', user_code: 'WDJB-MJHT', verification_uri: `http://127.0.0.1:${port}/activate`, expires_in: 60, interval: 1 })
+    }
     if (p === '/token') {
       const form = new URLSearchParams(raw.toString('utf8'))
+      const grant = form.get('grant_type')
+      // A device is told to wait once, then given its token.
+      if (grant === 'urn:ietf:params:oauth:grant-type:device_code') {
+        if (form.get('device_code') !== 'dev-1') return json(400, { error: 'expired_token' })
+        devicePolls += 1
+        return devicePolls < 2 ? json(400, { error: 'authorization_pending' }) : json(200, { access_token: 'device-tok', token_type: 'Bearer', expires_in: 3600 })
+      }
+      if (grant === 'password') {
+        const fine = form.get('username') === 'ada' && form.get('password') === 'pw'
+        return json(fine ? 200 : 400, fine ? { access_token: 'password-tok', token_type: 'Bearer', expires_in: 3600 } : { error: 'invalid_grant' })
+      }
       const basic = req.headers.authorization === 'Basic ' + Buffer.from('cid:csecret').toString('base64')
-      const ok = form.get('grant_type') === 'client_credentials' && (basic || (form.get('client_id') === 'cid' && form.get('client_secret') === 'csecret'))
+      const ok = grant === 'client_credentials' && (basic || (form.get('client_id') === 'cid' && form.get('client_secret') === 'csecret'))
       return json(ok ? 200 : 401, ok ? { access_token: 'oauth-tok', token_type: 'Bearer', expires_in: 3600 } : { error: 'invalid_client', got: Object.fromEntries(form) })
     }
     if (p === '/login') return json(200, { data: { token: 't-123', user: { id: 7, name: 'Ada' } } })
@@ -83,13 +99,26 @@ export function startServer(port = 8787) {
   server.on('upgrade', (req, socket) => {
     const key = req.headers['sec-websocket-key']
     const accept = createHash('sha1').update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64')
-    socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`)
+    // /graphql speaks graphql-transport-ws; everything else echoes.
+    const graphql = req.url.startsWith('/graphql')
+    const protocol = graphql ? 'Sec-WebSocket-Protocol: graphql-transport-ws\r\n' : ''
+    socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n${protocol}Sec-WebSocket-Accept: ${accept}\r\n\r\n`)
     const send = (op, payload) => {
       const len = payload.length
       const head = len < 126 ? Buffer.from([0x80 | op, len]) : Buffer.from([0x80 | op, 126, len >> 8, len & 255])
       socket.write(Buffer.concat([head, payload]))
     }
-    send(1, Buffer.from('welcome'))
+    if (!graphql) send(1, Buffer.from('welcome'))
+    const say = (message) => send(1, Buffer.from(JSON.stringify(message)))
+    const onGraphql = (text) => {
+      const message = JSON.parse(text)
+      if (message.type === 'connection_init') say({ type: 'connection_ack' })
+      else if (message.type === 'subscribe') {
+        say({ type: 'next', id: message.id, payload: { data: { tick: 1 } } })
+        say({ type: 'next', id: message.id, payload: { data: { tick: 2 } } })
+        say({ type: 'complete', id: message.id })
+      }
+    }
     let buf = Buffer.alloc(0)
     socket.on('data', (d) => {
       buf = Buffer.concat([buf, d])
@@ -105,7 +134,8 @@ export function startServer(port = 8787) {
         const data = Buffer.from(buf.subarray(off + (masked ? 4 : 0), need))
         if (mask) for (let i = 0; i < data.length; i++) data[i] ^= mask[i % 4]
         buf = buf.subarray(need)
-        if (op === 1) send(1, Buffer.from(`echo: ${data.toString()}`))
+        if (op === 1 && graphql) onGraphql(data.toString())
+        else if (op === 1) send(1, Buffer.from(`echo: ${data.toString()}`))
         else if (op === 8) { send(8, Buffer.alloc(0)); socket.end() }
         else if (op === 9) send(10, data)
       }

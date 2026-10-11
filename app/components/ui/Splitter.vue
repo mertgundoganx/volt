@@ -45,7 +45,7 @@ function onKey(event: KeyboardEvent) {
     tabindex="0"
     :aria-orientation="axis === 'x' ? 'vertical' : 'horizontal'"
     :aria-label="label"
-    :title="`${label} — drag to resize, double-click to reset`"
+    :title="t('{label} — drag to resize, double-click to reset', { label })"
     @pointerdown="start"
     @pointermove="move"
     @pointerup="stop"
@@ -60,20 +60,21 @@ function onKey(event: KeyboardEvent) {
 <style scoped>
 .ui-splitter { position: relative; flex: none; z-index: 2; }
 .ui-splitter:focus-visible { outline-offset: -2px; }
-/* Between columns: a hairline with a wider grab area. */
-.x { width: 1px; background: var(--line); cursor: col-resize; }
-.x::before { content: ""; position: absolute; inset: 0 -4px; }
-.x:hover, .x.active { background: var(--accent); }
-/* Between rows: a thin band of chrome. */
-.y {
-  height: 7px;
-  display: grid;
-  place-items: center;
-  background: var(--bg-0);
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  cursor: row-resize;
+/*
+ * The gap between two panels is the handle. Nothing is drawn until the
+ * pointer is on it; then a short bar says it can be dragged.
+ */
+.ui-splitter { display: grid; place-items: center; }
+.ui-splitter::after {
+  content: "";
+  border-radius: 2px;
+  background: transparent;
+  transition: background var(--dur) var(--ease);
 }
-.y i { width: 24px; height: 2px; border-radius: 1px; background: var(--line-strong); transition: background var(--dur) var(--ease); }
-.y:hover i, .y.active i { background: var(--accent); }
+.x { width: var(--gap); cursor: col-resize; }
+.x::after { width: 3px; height: 36px; }
+.y { height: var(--gap); cursor: row-resize; }
+.y::after { width: 36px; height: 3px; }
+.ui-splitter:hover::after, .ui-splitter.active::after { background: var(--ink-2); }
+.y i { display: none; }
 </style>

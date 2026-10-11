@@ -37,34 +37,34 @@ async function copy() {
     copied.value = true
     setTimeout(() => (copied.value = false), 1400)
   } catch {
-    store.error = 'Could not copy to the clipboard.'
+    store.error = t('Could not copy to the clipboard.')
   }
 }
 </script>
 
 <template>
-  <UiDialog title="Generate code" :eyebrow="store.request?.name ?? 'Request'" :width="760" @close="emit('close')">
+  <UiDialog :title="t('Generate code')" :eyebrow="store.request?.name ?? t('Request')" :width="760" @close="emit('close')">
     <div class="bar">
-      <UiSegmented v-model="language" :options="languages" label="Language" size="sm" />
+      <UiSegmented v-model="language" :options="languages" :label="t('Language|code')" size="sm" />
       <span class="spacer" />
       <label class="secrets">
         <input v-model="withSecrets" type="checkbox">
-        <span>Include secret values</span>
+        <span>{{ t('Include secret values') }}</span>
       </label>
     </div>
 
     <div class="code">
       <UiCodeView v-if="generated" :text="generated.code" language="text" wrap />
-      <p v-else class="empty">Generating…</p>
+      <p v-else class="empty">{{ t('Generating…') }}</p>
     </div>
 
     <p v-if="generated?.hidden.length" class="hint">
       <UiIcon name="lock" :size="13" />
-      <span>Secrets left as placeholders: {{ asVars(generated.hidden) }}. Safe to paste anywhere.</span>
+      <span>{{ t('Secrets left as placeholders: {names}. Safe to paste anywhere.', { names: asVars(generated.hidden) }) }}</span>
     </p>
     <p v-if="generated?.undefined.length" class="hint warn">
       <UiIcon name="warning" :size="13" />
-      <span>No value anywhere for {{ generated.undefined.join(', ') }} — the snippet keeps the placeholder.</span>
+      <span>{{ t('No value anywhere for {names} — the snippet keeps the placeholder.', { names: generated.undefined.join(', ') }) }}</span>
     </p>
     <p v-for="note in generated?.notes ?? []" :key="note" class="hint warn">
       <UiIcon name="warning" :size="13" />
@@ -72,11 +72,11 @@ async function copy() {
     </p>
 
     <template #footer>
-      <span class="silk">Resolved the way Send resolves it</span>
+      <span class="silk">{{ t('Resolved the way Send resolves it') }}</span>
       <span class="spacer" />
-      <button type="button" class="btn btn-quiet" @click="emit('close')">Close</button>
+      <button type="button" class="btn btn-quiet" @click="emit('close')">{{ t('Close') }}</button>
       <button type="button" class="btn btn-primary" :disabled="!generated" @click="copy">
-        <UiIcon :name="copied ? 'check' : 'copy'" :size="14" />{{ copied ? 'Copied' : 'Copy' }}
+        <UiIcon :name="copied ? 'check' : 'copy'" :size="14" />{{ copied ? t('Copied') : t('Copy') }}
       </button>
     </template>
   </UiDialog>

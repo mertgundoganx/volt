@@ -88,7 +88,7 @@ try {
     }
     throw new Error(`timed out waiting for ${label}`)
   }
-  await until('the app', `return document.querySelector('.app-bar') ? 1 : null`)
+  await until('the app', `return document.querySelector('.top-bar') ? 1 : null`)
   const toast = await until('the update toast', `const t = document.querySelector('.toast'); return t && /available/.test(t.textContent) ? t.textContent.replace(/\\s+/g, ' ').trim() : null`, 40000)
   check(`the build finds ${target} at the endpoint`, toast.includes(`${target} is available`), toast)
   await run(`document.querySelector('button[aria-label="Settings"]').click()`)

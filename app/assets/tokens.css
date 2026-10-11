@@ -1,18 +1,24 @@
 /*
  * volt design tokens.
  *
- * The material is paper. Warm off-white surfaces, ink, hairline rules, and one
- * colour — ultramarine — kept for the things that act: the Send key, the
- * request you are on, a `{{variable}}`, focus. Everything is flat: no glow, no
- * gradient, no rim of light. Depth is drawn with rules and, for the few things
- * that float, one soft shadow.
+ * The picture is a workbench. A tinted bench (`--bg-0`) with a few panels
+ * lying on it (`--bg-1`), each with rounded corners and a gap between them,
+ * so the window reads as separate things rather than one ruled sheet. Inside
+ * a panel nothing is boxed: a field is a filled well, not an outline.
  *
- * Light is the default, on bare `:root`. Dark is the same paper at night —
- * warm graphite, not blue-black — and redefines tokens only: once for the OS
- * setting (while no theme is chosen) and once for an explicit dark choice.
- * Linen and Mist are two more sheets of paper, chosen explicitly. Every named
- * theme is selected by `[data-theme=…]` on any element, not only `:root`, so
- * a swatch in Settings can wear a theme without the page changing.
+ * There is one colour, and it is a highlighter. On the light bench it is a
+ * lime that is only ever a *fill* with ink on top of it — the Send key, a
+ * `{{variable}}` run over with the marker, the tab you are on — because lime
+ * text on white cannot be read. So focus is drawn in ink (`--focus`), and the
+ * colour as text (`--accent-text`) is a dark olive used sparingly. At night
+ * the same lime is bright enough to be text and ring as well.
+ *
+ * Light is the default, on bare `:root`; dark answers the OS setting while
+ * no theme is chosen. Every named theme is selected by `[data-theme=…]` on
+ * any element, not only `:root`, so a swatch in Settings can wear a theme
+ * without the page changing. Cobalt, Linen and Mist keep a dark accent with
+ * white ink on it; their focus ring is the accent.
+ *
  * Components take every colour, radius and size from here; never a hex in a
  * component. Every text token is >= 4.5:1 on the surface it sits on, and
  * `--faint` / `--punc` >= 3:1.
@@ -21,77 +27,76 @@
 :root {
   color-scheme: light;
 
-  /* ---- Surfaces ----------------------------------------------------------- */
-  --bg-0: #F1EFEA;        /* chrome: the rail, the sidebar, the tab strip */
-  --bg-1: #FAF9F6;        /* the working surface */
-  --bg-2: #FFFFFF;        /* raised: buttons, the request card */
-  --bg-3: #FFFFFF;        /* floating: menus, dialogs */
-  --well: #FFFFFF;        /* recessed: inputs, code, the response body */
-  --hover: rgba(28, 25, 20, 0.06);
-  --press: rgba(28, 25, 20, 0.11);
+  /* ---- Surfaces: the bench, a panel on it, raised, floating, and a filled well */
+  --bg-0: #E8E7E1;
+  --bg-1: #FCFCFA;
+  --bg-2: #FFFFFF;
+  --bg-3: #FFFFFF;
+  --well: #F2F1EC;
+  --hover: rgba(20, 21, 26, 0.055);
+  --press: rgba(20, 21, 26, 0.10);
 
-  /* ---- Ink ---------------------------------------------------------------- */
-  --ink: #1C1A17;
-  --ink-2: #4A4640;       /* secondary text */
-  --silk: #6B665E;        /* labels, meta */
-  --faint: #8C877E;       /* placeholders, line numbers, disabled */
+  /* ---- Ink */
+  --ink: #15161A;
+  --ink-2: #43454E;
+  --silk: #666872;
+  --faint: #8B8D97;
 
-  /* ---- Rules -------------------------------------------------------------- */
-  --line: #E1DED6;
-  --line-soft: #ECEAE4;
-  --line-strong: #C9C5BC;
+  /* ---- Rules */
+  --line: #E2E1DB;
+  --line-soft: #EDECE7;
+  --line-strong: #C8C7C0;
 
-  /* ---- The one colour ----------------------------------------------------- */
-  --accent: #2F3DE8;      /* fills: white reads on it at 7:1 */
-  --accent-hi: #2735D6;   /* hover */
-  --accent-lo: #1F2BB8;   /* pressed */
-  --accent-text: #2433C8; /* the colour as text on paper */
-  --accent-ink: #FFFFFF;  /* text on a filled accent */
-  --accent-tint: rgba(47, 61, 232, 0.09);
-  --accent-line: rgba(47, 61, 232, 0.38);
+  /* ---- The one colour, and the ring that shows focus */
+  --accent: #C8F02C;
+  --accent-hi: #BCE61C;
+  --accent-lo: #AEDA0E;
+  --accent-text: #4A5F00;
+  --accent-ink: #151A05;
+  --accent-tint: rgba(190, 235, 30, 0.26);
+  --accent-line: rgba(110, 140, 0, 0.50);
+  --focus: #15161A;
 
-  /* ---- Meaning. Separate from the accent: a warning is amber, never blue. -- */
-  --ok: #1E7A47;
+  /* ---- Meaning */
+  --ok: #17804A;
   --warn: #9A5B00;
-  --bad: #C42B1C;
-  --info: #2433C8;
-  --ok-tint: rgba(30, 122, 71, 0.10);
+  --bad: #CC3323;
+  --info: #3550D8;
+  --ok-tint: rgba(23, 128, 74, 0.10);
   --warn-tint: rgba(154, 91, 0, 0.10);
-  --bad-tint: rgba(196, 43, 28, 0.09);
-  --info-tint: rgba(47, 61, 232, 0.09);
+  --bad-tint: rgba(204, 51, 35, 0.09);
+  --info-tint: rgba(53, 80, 216, 0.09);
 
-  /* ---- HTTP methods. Distinct at a glance; text on a stamp is `--on-method`. */
-  --m-get: #1E7A47;
-  --m-post: #A85508;
-  --m-put: #1F5FD6;
-  --m-patch: #7A3FBF;
-  --m-delete: #C42B1C;
-  --m-other: #6B665E;
-  --on-method: #FFFFFF;
+  /* ---- HTTP methods */
+  --m-get: #17804A;
+  --m-post: #B45309;
+  --m-put: #2D5BD8;
+  --m-patch: #7C3AED;
+  --m-delete: #CC3323;
+  --m-other: #666872;
 
-  /* ---- {{variables}} — the accent, because that is what they are. --------- */
-  --var: #2433C8;
-  --var-bg: rgba(47, 61, 232, 0.09);
+  /* ---- {{variables}} and syntax */
+  --var: #15161A;
+  --var-bg: #DDF58A;
+  --syn-key: #15161A;
+  --syn-str: #17804A;
+  --syn-num: #B45309;
+  --syn-lit: #6D3FD6;
+  --punc: #8B8D97;
 
-  /* ---- Syntax ------------------------------------------------------------- */
-  --syn-key: #1C1A17;
-  --syn-str: #1F7A3E;
-  --syn-num: #A85508;
-  --syn-lit: #2433C8;     /* true, false, null */
-  --punc: #8C877E;
-
-  --selection: rgba(47, 61, 232, 0.18);
-  --backdrop: rgba(28, 25, 20, 0.36);
-
-  /* ---- Elevation: only what floats gets one. ------------------------------ */
-  --shadow-pop: 0 0 0 1px rgba(28, 25, 20, 0.07), 0 10px 30px -10px rgba(28, 25, 20, 0.35);
+  /* ---- Selection, the dimmed page, and the two shadows */
+  --selection: rgba(190, 235, 30, 0.45);
+  --backdrop: rgba(20, 21, 26, 0.40);
+  --shadow-pop: 0 0 0 1px rgba(20, 21, 26, 0.06), 0 16px 40px -12px rgba(20, 21, 26, 0.35);
+  --shadow-panel: 0 1px 2px rgba(20, 21, 26, 0.05);
 
   /* ---- Shape, by role ----------------------------------------------------- */
-  --r-xs: 4px;            /* checkboxes, kbd, variable marks, stamps */
-  --r-sm: 6px;            /* buttons, inputs, rows */
-  --r-md: 8px;            /* menus, the URL bar */
-  --r-lg: 10px;           /* dialogs */
-  --r-full: 999px;
+  --r-xs: 5px;            /* checkboxes, kbd, variable marks, method marks */
+  --r-sm: 8px;            /* buttons, inputs, rows */
+  --r-md: 10px;           /* menus */
+  --r-lg: 14px;           /* dialogs */
+  --r-panel: 14px;        /* a panel on the bench */
+  --r-full: 999px;        /* pills: the URL bar, tabs, chips */
 
   /* ---- Space, on a 4px grid ---------------------------------------------- */
   --s-1: 4px;
@@ -102,6 +107,7 @@
   --s-6: 24px;
   --s-8: 32px;
   --s-10: 40px;
+  --gap: 8px;             /* between panels, and from them to the window edge */
 
   /* ---- Type --------------------------------------------------------------- */
   --font-ui: "IBM Plex Sans Variable", "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
@@ -113,14 +119,13 @@
   --t-body: 13px;
   --t-code: 12.5px;
   --t-title: 16px;
-  --t-display: 22px;
+  --t-display: 24px;
 
   /* ---- Sizes -------------------------------------------------------------- */
-  --w-rail: 56px;
-  --h-bar: 44px;          /* top bar */
+  --h-bar: 44px;          /* the strip across the top of the bench */
   --h-control: 30px;
   --h-row: 30px;          /* tree and table rows */
-  --h-probe: 38px;        /* the URL bar */
+  --h-probe: 44px;        /* the URL bar */
 
   /* ---- Motion ------------------------------------------------------------- */
   --ease: cubic-bezier(0.2, 0, 0, 1);
@@ -129,157 +134,190 @@
 }
 
 /* --------------------------------------------------------------------------
- * Dark: the same paper at night. Warm graphite, the accent lifted so it still
- * carries white text, meaning colours brightened to read on the dark ground.
+ * Night: the same bench with the lamp off. The lime carries text here.
  * -------------------------------------------------------------------------- */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     color-scheme: dark;
-    --bg-0: #171614;
-    --bg-1: #1E1D1A;
-    --bg-2: #262521;
-    --bg-3: #2C2B26;
-    --well: #191815;
-    --hover: rgba(255, 250, 240, 0.06);
-    --press: rgba(255, 250, 240, 0.11);
-
-    --ink: #EDEAE3;
-    --ink-2: #BDB8AE;
-    --silk: #948F85;
-    --faint: #6F6A61;
-
-    --line: #33312C;
-    --line-soft: #292824;
-    --line-strong: #4A4740;
-
-    --accent: #4A5BF0;
-    --accent-hi: #5A6BFF;
-    --accent-lo: #3A49D0;
-    --accent-text: #9AA6FF;
-    --accent-ink: #FFFFFF;
-    --accent-tint: rgba(91, 108, 255, 0.16);
-    --accent-line: rgba(91, 108, 255, 0.45);
-
+    --bg-0: #0C0D10;
+    --bg-1: #15161B;
+    --bg-2: #1D1F25;
+    --bg-3: #21232A;
+    --well: #1C1E24;
+    --hover: rgba(255, 255, 255, 0.06);
+    --press: rgba(255, 255, 255, 0.11);
+    --ink: #ECEDF0;
+    --ink-2: #B7B9C2;
+    --silk: #8C8F9A;
+    --faint: #686B76;
+    --line: #272930;
+    --line-soft: #1F2127;
+    --line-strong: #3A3D46;
+    --accent: #CDF53E;
+    --accent-hi: #D8FA5C;
+    --accent-lo: #BCE62A;
+    --accent-text: #CDF53E;
+    --accent-ink: #131706;
+    --accent-tint: rgba(205, 245, 62, 0.13);
+    --accent-line: rgba(205, 245, 62, 0.45);
+    --focus: #CDF53E;
     --ok: #4CC38A;
     --warn: #E5A83B;
     --bad: #F0655A;
-    --info: #9AA6FF;
+    --info: #8FA2FF;
     --ok-tint: rgba(76, 195, 138, 0.13);
     --warn-tint: rgba(229, 168, 59, 0.13);
     --bad-tint: rgba(240, 101, 90, 0.13);
-    --info-tint: rgba(91, 108, 255, 0.16);
-
+    --info-tint: rgba(143, 162, 255, 0.14);
     --m-get: #4CC38A;
     --m-post: #E5A83B;
-    --m-put: #6FA0FF;
-    --m-patch: #B98CFF;
+    --m-put: #7DA4FF;
+    --m-patch: #B794FF;
     --m-delete: #F0655A;
-    --m-other: #948F85;
-    --on-method: #171614;
-
-    --var: #9AA6FF;
-    --var-bg: rgba(91, 108, 255, 0.16);
-
-    --syn-key: #EDEAE3;
+    --m-other: #8C8F9A;
+    --var: #DDF77A;
+    --var-bg: rgba(205, 245, 62, 0.15);
+    --syn-key: #ECEDF0;
     --syn-str: #8FD4A8;
     --syn-num: #F0B86A;
-    --syn-lit: #9AA6FF;
-    --punc: #6F6A61;
-
-    --selection: rgba(91, 108, 255, 0.35);
-    --backdrop: rgba(0, 0, 0, 0.55);
-
-    --shadow-pop: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 12px 32px -10px rgba(0, 0, 0, 0.7);
+    --syn-lit: #B794FF;
+    --punc: #686B76;
+    --selection: rgba(205, 245, 62, 0.28);
+    --backdrop: rgba(0, 0, 0, 0.60);
+    --shadow-pop: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 16px 40px -12px rgba(0, 0, 0, 0.8);
+    --shadow-panel: none;
   }
 }
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg-0: #171614;
-  --bg-1: #1E1D1A;
-  --bg-2: #262521;
-  --bg-3: #2C2B26;
-  --well: #191815;
-  --hover: rgba(255, 250, 240, 0.06);
-  --press: rgba(255, 250, 240, 0.11);
-
-  --ink: #EDEAE3;
-  --ink-2: #BDB8AE;
-  --silk: #948F85;
-  --faint: #6F6A61;
-
-  --line: #33312C;
-  --line-soft: #292824;
-  --line-strong: #4A4740;
-
-  --accent: #4A5BF0;
-  --accent-hi: #5A6BFF;
-  --accent-lo: #3A49D0;
-  --accent-text: #9AA6FF;
-  --accent-ink: #FFFFFF;
-  --accent-tint: rgba(91, 108, 255, 0.16);
-  --accent-line: rgba(91, 108, 255, 0.45);
-
+  --bg-0: #0C0D10;
+  --bg-1: #15161B;
+  --bg-2: #1D1F25;
+  --bg-3: #21232A;
+  --well: #1C1E24;
+  --hover: rgba(255, 255, 255, 0.06);
+  --press: rgba(255, 255, 255, 0.11);
+  --ink: #ECEDF0;
+  --ink-2: #B7B9C2;
+  --silk: #8C8F9A;
+  --faint: #686B76;
+  --line: #272930;
+  --line-soft: #1F2127;
+  --line-strong: #3A3D46;
+  --accent: #CDF53E;
+  --accent-hi: #D8FA5C;
+  --accent-lo: #BCE62A;
+  --accent-text: #CDF53E;
+  --accent-ink: #131706;
+  --accent-tint: rgba(205, 245, 62, 0.13);
+  --accent-line: rgba(205, 245, 62, 0.45);
+  --focus: #CDF53E;
   --ok: #4CC38A;
   --warn: #E5A83B;
   --bad: #F0655A;
-  --info: #9AA6FF;
+  --info: #8FA2FF;
   --ok-tint: rgba(76, 195, 138, 0.13);
   --warn-tint: rgba(229, 168, 59, 0.13);
   --bad-tint: rgba(240, 101, 90, 0.13);
-  --info-tint: rgba(91, 108, 255, 0.16);
-
+  --info-tint: rgba(143, 162, 255, 0.14);
   --m-get: #4CC38A;
   --m-post: #E5A83B;
-  --m-put: #6FA0FF;
-  --m-patch: #B98CFF;
+  --m-put: #7DA4FF;
+  --m-patch: #B794FF;
   --m-delete: #F0655A;
-  --m-other: #948F85;
-  --on-method: #171614;
-
-  --var: #9AA6FF;
-  --var-bg: rgba(91, 108, 255, 0.16);
-
-  --syn-key: #EDEAE3;
+  --m-other: #8C8F9A;
+  --var: #DDF77A;
+  --var-bg: rgba(205, 245, 62, 0.15);
+  --syn-key: #ECEDF0;
   --syn-str: #8FD4A8;
   --syn-num: #F0B86A;
-  --syn-lit: #9AA6FF;
-  --punc: #6F6A61;
-
-  --selection: rgba(91, 108, 255, 0.35);
-  --backdrop: rgba(0, 0, 0, 0.55);
-
-  --shadow-pop: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 12px 32px -10px rgba(0, 0, 0, 0.7);
+  --syn-lit: #B794FF;
+  --punc: #686B76;
+  --selection: rgba(205, 245, 62, 0.28);
+  --backdrop: rgba(0, 0, 0, 0.60);
+  --shadow-pop: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 16px 40px -12px rgba(0, 0, 0, 0.8);
+  --shadow-panel: none;
 }
 
-
-/* --------------------------------------------------------------------------
- * Light, by name: the same palette as bare `:root`, so a swatch can wear it
- * inside a page that is on another theme.
- * -------------------------------------------------------------------------- */
+/* Light, by name: the same palette as bare `:root`, so a swatch can wear it
+   inside a page that is on another theme. */
 [data-theme="light"] {
   color-scheme: light;
-  --bg-0: #F1EFEA;        /* chrome: the rail, the sidebar, the tab strip */
-  --bg-1: #FAF9F6;        /* the working surface */
-  --bg-2: #FFFFFF;        /* raised: buttons, the request card */
-  --bg-3: #FFFFFF;        /* floating: menus, dialogs */
-  --well: #FFFFFF;        /* recessed: inputs, code, the response body */
+  --bg-0: #E8E7E1;
+  --bg-1: #FCFCFA;
+  --bg-2: #FFFFFF;
+  --bg-3: #FFFFFF;
+  --well: #F2F1EC;
+  --hover: rgba(20, 21, 26, 0.055);
+  --press: rgba(20, 21, 26, 0.10);
+  --ink: #15161A;
+  --ink-2: #43454E;
+  --silk: #666872;
+  --faint: #8B8D97;
+  --line: #E2E1DB;
+  --line-soft: #EDECE7;
+  --line-strong: #C8C7C0;
+  --accent: #C8F02C;
+  --accent-hi: #BCE61C;
+  --accent-lo: #AEDA0E;
+  --accent-text: #4A5F00;
+  --accent-ink: #151A05;
+  --accent-tint: rgba(190, 235, 30, 0.26);
+  --accent-line: rgba(110, 140, 0, 0.50);
+  --focus: #15161A;
+  --ok: #17804A;
+  --warn: #9A5B00;
+  --bad: #CC3323;
+  --info: #3550D8;
+  --ok-tint: rgba(23, 128, 74, 0.10);
+  --warn-tint: rgba(154, 91, 0, 0.10);
+  --bad-tint: rgba(204, 51, 35, 0.09);
+  --info-tint: rgba(53, 80, 216, 0.09);
+  --m-get: #17804A;
+  --m-post: #B45309;
+  --m-put: #2D5BD8;
+  --m-patch: #7C3AED;
+  --m-delete: #CC3323;
+  --m-other: #666872;
+  --var: #15161A;
+  --var-bg: #DDF58A;
+  --syn-key: #15161A;
+  --syn-str: #17804A;
+  --syn-num: #B45309;
+  --syn-lit: #6D3FD6;
+  --punc: #8B8D97;
+  --selection: rgba(190, 235, 30, 0.45);
+  --backdrop: rgba(20, 21, 26, 0.40);
+  --shadow-pop: 0 0 0 1px rgba(20, 21, 26, 0.06), 0 16px 40px -12px rgba(20, 21, 26, 0.35);
+  --shadow-panel: 0 1px 2px rgba(20, 21, 26, 0.05);
+}
+
+/* Cobalt: warm paper and ultramarine — what volt looked like before 1.0. */
+[data-theme="cobalt"] {
+  color-scheme: light;
+  --bg-0: #EAE8E1;
+  --bg-1: #FBFAF7;
+  --bg-2: #FFFFFF;
+  --bg-3: #FFFFFF;
+  --well: #F2F0EA;
   --hover: rgba(28, 25, 20, 0.06);
   --press: rgba(28, 25, 20, 0.11);
   --ink: #1C1A17;
-  --ink-2: #4A4640;       /* secondary text */
-  --silk: #6B665E;        /* labels, meta */
-  --faint: #8C877E;       /* placeholders, line numbers, disabled */
+  --ink-2: #4A4640;
+  --silk: #6B665E;
+  --faint: #8C877E;
   --line: #E1DED6;
   --line-soft: #ECEAE4;
   --line-strong: #C9C5BC;
-  --accent: #2F3DE8;      /* fills: white reads on it at 7:1 */
-  --accent-hi: #2735D6;   /* hover */
-  --accent-lo: #1F2BB8;   /* pressed */
-  --accent-text: #2433C8; /* the colour as text on paper */
-  --accent-ink: #FFFFFF;  /* text on a filled accent */
+  --accent: #2F3DE8;
+  --accent-hi: #2735D6;
+  --accent-lo: #1F2BB8;
+  --accent-text: #2433C8;
+  --accent-ink: #FFFFFF;
   --accent-tint: rgba(47, 61, 232, 0.09);
   --accent-line: rgba(47, 61, 232, 0.38);
+  --focus: #2F3DE8;
   --ok: #1E7A47;
   --warn: #9A5B00;
   --bad: #C42B1C;
@@ -294,41 +332,36 @@
   --m-patch: #7A3FBF;
   --m-delete: #C42B1C;
   --m-other: #6B665E;
-  --on-method: #FFFFFF;
   --var: #2433C8;
   --var-bg: rgba(47, 61, 232, 0.09);
   --syn-key: #1C1A17;
   --syn-str: #1F7A3E;
   --syn-num: #A85508;
-  --syn-lit: #2433C8;     /* true, false, null */
+  --syn-lit: #2433C8;
   --punc: #8C877E;
   --selection: rgba(47, 61, 232, 0.18);
   --backdrop: rgba(28, 25, 20, 0.36);
-  --shadow-pop: 0 0 0 1px rgba(28, 25, 20, 0.07), 0 10px 30px -10px rgba(28, 25, 20, 0.35);
+  --shadow-pop: 0 0 0 1px rgba(28, 25, 20, 0.07), 0 16px 40px -12px rgba(28, 25, 20, 0.35);
+  --shadow-panel: 0 1px 2px rgba(28, 25, 20, 0.05);
 }
 
-/* --------------------------------------------------------------------------
- * Linen: warmer paper, brown ink, and brick where the default has blue.
- * -------------------------------------------------------------------------- */
+/* Linen: warmer paper, brown ink, and brick. */
 [data-theme="linen"] {
   color-scheme: light;
-  --bg-0: #EFE7D6;
-  --bg-1: #F7F1E3;
-  --bg-2: #FDFAF3;
-  --bg-3: #FDFAF3;
-  --well: #FFFDF7;
+  --bg-0: #E9DFCB;
+  --bg-1: #FBF6EA;
+  --bg-2: #FFFCF5;
+  --bg-3: #FFFCF5;
+  --well: #F2EADA;
   --hover: rgba(60, 40, 20, 0.07);
   --press: rgba(60, 40, 20, 0.12);
-
   --ink: #2B2118;
   --ink-2: #55483C;
   --silk: #74665A;
   --faint: #8F8275;
-
   --line: #DED3BF;
   --line-soft: #E8DFCE;
   --line-strong: #C4B69E;
-
   --accent: #B4532A;
   --accent-hi: #A2481F;
   --accent-lo: #8D3D18;
@@ -336,7 +369,7 @@
   --accent-ink: #FFFFFF;
   --accent-tint: rgba(180, 83, 42, 0.11);
   --accent-line: rgba(180, 83, 42, 0.40);
-
+  --focus: #B4532A;
   --ok: #1F7A45;
   --warn: #8C5300;
   --bad: #B3261E;
@@ -345,52 +378,42 @@
   --warn-tint: rgba(140, 83, 0, 0.11);
   --bad-tint: rgba(179, 38, 30, 0.10);
   --info-tint: rgba(180, 83, 42, 0.11);
-
   --m-get: #1F7A45;
   --m-post: #9A5A00;
   --m-put: #1F5FD6;
   --m-patch: #7A3FBF;
   --m-delete: #B3261E;
   --m-other: #74665A;
-  --on-method: #FFFFFF;
-
   --var: #9A4218;
   --var-bg: rgba(180, 83, 42, 0.11);
-
   --syn-key: #2B2118;
   --syn-str: #1F7A45;
   --syn-num: #9A5A00;
   --syn-lit: #9A4218;
   --punc: #8F8275;
-
   --selection: rgba(180, 83, 42, 0.20);
   --backdrop: rgba(43, 33, 24, 0.36);
-
-  --shadow-pop: 0 0 0 1px rgba(43, 33, 24, 0.08), 0 10px 30px -10px rgba(43, 33, 24, 0.35);
+  --shadow-pop: 0 0 0 1px rgba(43, 33, 24, 0.08), 0 16px 40px -12px rgba(43, 33, 24, 0.35);
+  --shadow-panel: 0 1px 2px rgba(43, 33, 24, 0.06);
 }
 
-/* --------------------------------------------------------------------------
- * Mist: cooler paper, slate ink, and teal where the default has blue.
- * -------------------------------------------------------------------------- */
+/* Mist: cooler paper, slate ink, and teal. */
 [data-theme="mist"] {
   color-scheme: light;
-  --bg-0: #E9EDF2;
-  --bg-1: #F3F5F8;
+  --bg-0: #E2E7EE;
+  --bg-1: #FAFBFD;
   --bg-2: #FFFFFF;
   --bg-3: #FFFFFF;
-  --well: #FFFFFF;
+  --well: #EEF1F6;
   --hover: rgba(20, 30, 45, 0.06);
   --press: rgba(20, 30, 45, 0.11);
-
   --ink: #1B2230;
   --ink-2: #444E5F;
   --silk: #67728A;
   --faint: #87919F;
-
   --line: #D9DFE8;
   --line-soft: #E5EAF0;
   --line-strong: #BEC7D4;
-
   --accent: #0F766E;
   --accent-hi: #0D6B63;
   --accent-lo: #0B5E57;
@@ -398,7 +421,7 @@
   --accent-ink: #FFFFFF;
   --accent-tint: rgba(15, 118, 110, 0.10);
   --accent-line: rgba(15, 118, 110, 0.40);
-
+  --focus: #0F766E;
   --ok: #1E7A47;
   --warn: #9A5B00;
   --bad: #C42B1C;
@@ -407,26 +430,21 @@
   --warn-tint: rgba(154, 91, 0, 0.10);
   --bad-tint: rgba(196, 43, 28, 0.09);
   --info-tint: rgba(15, 118, 110, 0.10);
-
   --m-get: #1E7A47;
   --m-post: #A85508;
   --m-put: #1F5FD6;
   --m-patch: #7A3FBF;
   --m-delete: #C42B1C;
   --m-other: #67728A;
-  --on-method: #FFFFFF;
-
   --var: #0B6B63;
   --var-bg: rgba(15, 118, 110, 0.10);
-
   --syn-key: #1B2230;
   --syn-str: #1F7A3E;
   --syn-num: #A85508;
   --syn-lit: #0B6B63;
   --punc: #87919F;
-
   --selection: rgba(15, 118, 110, 0.18);
   --backdrop: rgba(27, 34, 48, 0.36);
-
-  --shadow-pop: 0 0 0 1px rgba(27, 34, 48, 0.07), 0 10px 30px -10px rgba(27, 34, 48, 0.32);
+  --shadow-pop: 0 0 0 1px rgba(27, 34, 48, 0.07), 0 16px 40px -12px rgba(27, 34, 48, 0.32);
+  --shadow-panel: 0 1px 2px rgba(27, 34, 48, 0.05);
 }

@@ -11,7 +11,7 @@ const error = ref<string | null>(null)
 const where = computed(() => {
   if (target.value.mode === 'replace') return null
   const parent = target.value.parent
-  return parent ? (store.findNode(parent)?.name ?? parent) : 'the collection root'
+  return parent ? (store.findNode(parent)?.name ?? parent) : t('the collection root')
 })
 
 const looksRight = computed(() => isCurl(command.value))
@@ -46,35 +46,34 @@ function onKey(event: KeyboardEvent) {
 
 <template>
   <UiDialog
-    :title="target.mode === 'replace' ? 'Fill this request from curl' : 'New request from curl'"
+    :title="target.mode === 'replace' ? t('Fill this request from curl') : t('New request from curl')"
     eyebrow="cURL"
     :width="680"
     @close="close"
   >
     <p class="lede">
-      Paste a command, including multi-line ones and a browser's "Copy as cURL" in either the bash or the
-      Windows form.
-      <template v-if="where">The request is saved in <b>{{ where }}</b>.</template>
-      <template v-else>The method, URL, headers, body and auth are replaced; the name and notes stay.</template>
+      {{ t(`Paste a command, including multi-line ones and a browser's "Copy as cURL" in either the bash or the Windows form.`) }}
+      <template v-if="where">{{ t('The request is saved in') }} <b>{{ where }}</b>.</template>
+      <template v-else>{{ t('The method, URL, headers, body and auth are replaced; the name and notes stay.') }}</template>
     </p>
 
     <div class="editor" :class="{ wrong: typed && !looksRight }" @keydown="onKey">
-      <UiCodeEditor v-model="command" label="curl command" placeholder="curl 'https://api.example.com/users' -H 'Accept: application/json'" />
+      <UiCodeEditor v-model="command" :label="t('curl command')" placeholder="curl 'https://api.example.com/users' -H 'Accept: application/json'" />
     </div>
 
     <p v-if="error" class="error mono" role="alert">{{ error }}</p>
-    <p v-else-if="typed && !looksRight" class="hint warn">It should start with <code>curl</code>.</p>
+    <p v-else-if="typed && !looksRight" class="hint warn">{{ t('It should start with') }} <code>curl</code>.</p>
     <p v-else class="hint">
       <UiIcon name="lock" :size="13" />
-      <span>Tokens, passwords, API keys and cookies in the command go to secret variables, never into the YAML.</span>
+      <span>{{ t('Tokens, passwords, API keys and cookies in the command go to secret variables, never into the YAML.') }}</span>
     </p>
 
     <template #footer>
       <span class="kbd">{{ modKey }} ↵</span>
       <span class="spacer" />
-      <button type="button" class="btn btn-quiet" @click="close">Cancel</button>
+      <button type="button" class="btn btn-quiet" @click="close">{{ t('Cancel') }}</button>
       <button type="button" class="btn btn-primary" :disabled="!looksRight || busy" @click="submit">
-        {{ busy ? 'Reading' : target.mode === 'replace' ? 'Fill request' : 'Create request' }}
+        {{ busy ? t('Reading') : target.mode === 'replace' ? t('Fill request') : t('Create request') }}
       </button>
     </template>
   </UiDialog>
@@ -92,7 +91,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
   border-radius: var(--r-sm);
   overflow: hidden;
 }
-.editor:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
+.editor:focus-within { border-color: var(--focus); box-shadow: 0 0 0 3px var(--accent-tint); }
 .editor.wrong { border-color: var(--warn); }
 .editor :deep(.ui-editor:focus-within) { box-shadow: none; }
 

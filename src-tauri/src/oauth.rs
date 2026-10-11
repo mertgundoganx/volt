@@ -7,9 +7,15 @@
 //! when the environment is — all the properties everything else in volt has,
 //! and none of them true of a token hidden inside an auth object.
 //!
-//! Two grants: client credentials, which is a single POST, and authorization
-//! code with PKCE, which needs a browser and somewhere for it to come back to.
-//! The somewhere is a loopback listener that lives for one redirect.
+//! Four grants. Client credentials and the resource owner's password are a
+//! single POST each. Authorization code with PKCE needs a browser and
+//! somewhere for it to come back to; the somewhere is a loopback listener that
+//! lives for one redirect. The device grant (RFC 8628) needs a browser too,
+//! but not this machine's: volt shows a code, the user types it in wherever
+//! they like, and volt asks the token endpoint whether they have yet. That
+//! asking is two commands rather than one long one — `device_start` and
+//! `device_poll` — because the waiting belongs to the UI, which is the one
+//! that can show the code, count the interval down and be told to stop.
 
 use std::time::Duration;
 
@@ -39,6 +45,15 @@ pub struct Config {
     /// Providers disagree about which they want; this is the switch.
     #[serde(default)]
     pub basic_auth: bool,
+    /// The resource owner, for the password grant. They go to the token
+    /// endpoint and nowhere else; the UI holds them like any other secret.
+    #[serde(default)]
+    pub username: String,
+    #[serde(default)]
+    pub password: String,
+    /// The device authorization endpoint, for the device grant.
+    #[serde(default)]
+    pub device_url: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -75,7 +90,14 @@ fn now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
-async fn post_token(config: &Config, form: Vec<(String, String)>) -> Result<Token> {
+/// POST a form to one of the provider's endpoints, with the client identified
+/// the way the config says, and hand back what it answered.
+async fn post_form(
+    url: &str,
+    what: &str,
+    config: &Config,
+    form: Vec<(String, String)>,
+) -> Result<(reqwest::StatusCode, String)> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .user_agent(concat!("volt/", env!("CARGO_PKG_VERSION")))
@@ -83,7 +105,7 @@ async fn post_token(config: &Config, form: Vec<(String, String)>) -> Result<Toke
         .map_err(|e| Error::Http(e.to_string()))?;
 
     let mut form = form;
-    let mut request = client.post(config.token_url.trim());
+    let mut request = client.post(url.trim());
     if config.basic_auth {
         request = request.basic_auth(config.client_id.trim(), Some(config.client_secret.trim()));
     } else {
@@ -98,18 +120,35 @@ async fn post_token(config: &Config, form: Vec<(String, String)>) -> Result<Toke
         .form(&form)
         .send()
         .await
-        .map_err(|e| Error::Http(format!("the token endpoint could not be reached: {e}")))?;
+        .map_err(|e| Error::Http(format!("the {what} endpoint could not be reached: {e}")))?;
 
     let status = response.status();
-    let body = response.text().await.unwrap_or_default();
-    let parsed: TokenResponse = serde_json::from_str(&body).map_err(|_| {
-        Error::Invalid(format!("the token endpoint answered {status} with something that is not a token: {body}"))
-    })?;
+    Ok((status, response.text().await.unwrap_or_default()))
+}
 
-    if let Some(error) = parsed.error {
-        let detail = parsed.error_description.unwrap_or_default();
-        return Err(Error::Invalid(format!("{error}{}{detail}", if detail.is_empty() { "" } else { ": " })));
+/// An RFC 6749 §5.2 refusal, as one line: the code, then what the provider
+/// said about it when it said anything.
+fn refusal(error: &str, description: Option<&str>) -> Error {
+    let detail = description.unwrap_or_default();
+    Error::Invalid(format!("{error}{}{detail}", if detail.is_empty() { "" } else { ": " }))
+}
+
+fn read_token_response(status: reqwest::StatusCode, body: &str) -> Result<TokenResponse> {
+    serde_json::from_str(body).map_err(|_| {
+        Error::Invalid(format!("the token endpoint answered {status} with something that is not a token: {body}"))
+    })
+}
+
+async fn post_token(config: &Config, form: Vec<(String, String)>) -> Result<Token> {
+    let (status, body) = post_form(&config.token_url, "token", config, form).await?;
+    let parsed = read_token_response(status, &body)?;
+    if let Some(error) = &parsed.error {
+        return Err(refusal(error, parsed.error_description.as_deref()));
     }
+    token_from(parsed, status)
+}
+
+fn token_from(parsed: TokenResponse, status: reqwest::StatusCode) -> Result<Token> {
     if parsed.access_token.is_empty() {
         return Err(Error::Invalid(format!("the token endpoint answered {status} without an access token")));
     }
@@ -133,6 +172,161 @@ pub async fn client_credentials(config: &Config) -> Result<Token> {
         form.push(("audience".into(), config.audience.trim().to_string()));
     }
     post_token(config, form).await
+}
+
+/// The resource owner password grant: the user's own name and password, sent
+/// straight to the token endpoint.
+///
+/// OAuth 2.1 drops it, and for good reason — the client sees the password —
+/// but plenty of internal identity servers still offer nothing else for a
+/// test user, and an API client that cannot get a token from them cannot test
+/// the API behind them.
+pub async fn password(config: &Config) -> Result<Token> {
+    if config.username.trim().is_empty() {
+        return Err(Error::Invalid("this grant needs the username to sign in as".into()));
+    }
+    let mut form = vec![
+        ("grant_type".to_string(), "password".to_string()),
+        ("username".to_string(), config.username.trim().to_string()),
+        // Not trimmed: a password may begin or end with a space.
+        ("password".to_string(), config.password.clone()),
+    ];
+    if !config.scope.trim().is_empty() {
+        form.push(("scope".into(), config.scope.trim().to_string()));
+    }
+    if !config.audience.trim().is_empty() {
+        form.push(("audience".into(), config.audience.trim().to_string()));
+    }
+    post_token(config, form).await
+}
+
+/// What the provider hands back when a device grant begins: a code for the
+/// user to type, where to type it, and how patiently to ask afterwards.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceStart {
+    /// What `device_poll` asks about. The user never sees it.
+    pub device_code: String,
+    /// What the user types in.
+    pub user_code: String,
+    pub verification_uri: String,
+    /// The same address with the code already in it, when the provider offers
+    /// one — the thing to open or to draw as a QR code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verification_uri_complete: Option<String>,
+    /// Seconds until the codes stop working.
+    pub expires_in: u64,
+    /// Seconds to leave between polls.
+    pub interval: u64,
+}
+
+#[derive(Deserialize)]
+struct DeviceResponse {
+    #[serde(default)]
+    device_code: String,
+    #[serde(default)]
+    user_code: String,
+    #[serde(default)]
+    verification_uri: String,
+    /// Google's spelling, from before the RFC settled on `uri`.
+    #[serde(default)]
+    verification_url: String,
+    #[serde(default)]
+    verification_uri_complete: Option<String>,
+    #[serde(default)]
+    expires_in: Option<u64>,
+    #[serde(default)]
+    interval: Option<u64>,
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    error_description: Option<String>,
+}
+
+/// Begin a device grant (RFC 8628 §3.1): ask for a device code and a user code.
+pub async fn device_start(config: &Config) -> Result<DeviceStart> {
+    if config.device_url.trim().is_empty() {
+        return Err(Error::Invalid("this grant needs the device authorization URL to ask for a code".into()));
+    }
+    let mut form = Vec::new();
+    if !config.scope.trim().is_empty() {
+        form.push(("scope".to_string(), config.scope.trim().to_string()));
+    }
+    if !config.audience.trim().is_empty() {
+        form.push(("audience".to_string(), config.audience.trim().to_string()));
+    }
+    // With Basic auth the form would otherwise be empty, and some providers
+    // read the client from the form whatever the header says.
+    if config.basic_auth {
+        form.push(("client_id".to_string(), config.client_id.trim().to_string()));
+    }
+
+    let (status, body) = post_form(&config.device_url, "device authorization", config, form).await?;
+    let parsed: DeviceResponse = serde_json::from_str(&body).map_err(|_| {
+        Error::Invalid(format!(
+            "the device authorization endpoint answered {status} with something that is not a device code: {body}"
+        ))
+    })?;
+    if let Some(error) = &parsed.error {
+        return Err(refusal(error, parsed.error_description.as_deref()));
+    }
+    let verification_uri = match parsed.verification_uri.is_empty() {
+        true => parsed.verification_url,
+        false => parsed.verification_uri,
+    };
+    if parsed.device_code.is_empty() || parsed.user_code.is_empty() || verification_uri.is_empty() {
+        return Err(Error::Invalid(format!(
+            "the device authorization endpoint answered {status} without a code to show"
+        )));
+    }
+    Ok(DeviceStart {
+        device_code: parsed.device_code,
+        user_code: parsed.user_code,
+        verification_uri,
+        verification_uri_complete: parsed.verification_uri_complete.filter(|uri| !uri.is_empty()),
+        // The RFC requires it; a provider that forgets gets a sensible quarter
+        // of an hour rather than a code that never stops being asked about.
+        expires_in: parsed.expires_in.unwrap_or(900),
+        // "If no value is provided, clients MUST use 5 as the default."
+        interval: parsed.interval.unwrap_or(5).max(1),
+    })
+}
+
+/// One answer to "have they typed the code in yet".
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DevicePoll {
+    /// `pending`: ask again after the interval. `slow_down`: ask again, and
+    /// add five seconds to the interval from now on. `done`: `token` is set.
+    /// `denied`: the user said no. `expired`: the codes ran out; start again.
+    pub status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<Token>,
+}
+
+/// Ask the token endpoint once whether the device grant has been approved
+/// (RFC 8628 §3.4). The four answers that are part of the flow come back as a
+/// status; anything else the provider says is an error like any other.
+pub async fn device_poll(config: &Config, device_code: &str) -> Result<DevicePoll> {
+    if device_code.trim().is_empty() {
+        return Err(Error::Invalid("there is no device code to ask about; start the grant first".into()));
+    }
+    let form = vec![
+        ("grant_type".to_string(), "urn:ietf:params:oauth:grant-type:device_code".to_string()),
+        ("device_code".to_string(), device_code.trim().to_string()),
+    ];
+    let (status, body) = post_form(&config.token_url, "token", config, form).await?;
+    let parsed = read_token_response(status, &body)?;
+
+    let waiting = |status: &'static str| Ok(DevicePoll { status, token: None });
+    match parsed.error.as_deref() {
+        Some("authorization_pending") => waiting("pending"),
+        Some("slow_down") => waiting("slow_down"),
+        Some("access_denied") => waiting("denied"),
+        Some("expired_token") => waiting("expired"),
+        Some(error) => Err(refusal(error, parsed.error_description.as_deref())),
+        None => Ok(DevicePoll { status: "done", token: Some(token_from(parsed, status)?) }),
+    }
 }
 
 /// Trade a refresh token for a new access token.
@@ -322,6 +516,9 @@ mod tests {
             scope: "read write".into(),
             audience: String::new(),
             basic_auth: false,
+            username: String::new(),
+            password: String::new(),
+            device_url: String::new(),
         }
     }
 
@@ -447,5 +644,153 @@ mod tests {
         // source does not.
         let shared = made.windows(2).filter(|p| p[0][..8] == p[1][..8]).count();
         assert_eq!(shared, 0, "no two consecutive verifiers start the same way");
+    }
+
+    #[test]
+    fn a_config_reads_what_the_ui_sends_and_old_ones_still_read() {
+        let config: Config = serde_json::from_str(
+            r#"{"tokenUrl": "https://id.test/token", "clientId": "volt", "deviceUrl": "https://id.test/device",
+                "username": "ada", "password": "hunter2"}"#,
+        )
+        .expect("the UI payload should deserialize");
+        assert_eq!(config.device_url, "https://id.test/device");
+        assert_eq!((config.username.as_str(), config.password.as_str()), ("ada", "hunter2"));
+
+        // A config saved before these fields existed has none of them.
+        let old: Config = serde_json::from_str(r#"{"tokenUrl": "https://id.test/token", "clientId": "volt"}"#).unwrap();
+        assert!(old.username.is_empty() && old.device_url.is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_password_grant_sends_the_resource_owner_and_reads_the_token() {
+        let (url, sent) =
+            token_endpoint(r#"{"access_token":"at-pw","token_type":"Bearer","refresh_token":"rt-pw"}"#, 200).await;
+        let mut config = config(&url);
+        config.username = "ada@example.test".into();
+        config.password = " p&ss word ".into();
+
+        let token = password(&config).await.expect("a token");
+        assert_eq!(token.access_token, "at-pw");
+        assert_eq!(token.refresh_token.as_deref(), Some("rt-pw"));
+
+        let request = sent.await.unwrap();
+        assert!(request.contains("grant_type=password"), "{request}");
+        assert!(request.contains("username=ada%40example.test"), "{request}");
+        assert!(request.contains("password=+p%26ss+word+"), "the password goes as typed, spaces and all: {request}");
+        assert!(request.contains("scope=read+write") && request.contains("client_id=volt"), "{request}");
+    }
+
+    #[tokio::test]
+    async fn the_password_grant_needs_someone_to_sign_in_as() {
+        let error = password(&config("http://127.0.0.1:1/token")).await.unwrap_err().to_string();
+        assert!(error.contains("username"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn a_device_grant_starts_with_a_code_to_show() {
+        let (url, sent) = token_endpoint(
+            r#"{"device_code":"dc-1","user_code":"WDJB-MJHT","verification_uri":"https://id.test/device",
+                "verification_uri_complete":"https://id.test/device?user_code=WDJB-MJHT","expires_in":1800,"interval":7}"#,
+            200,
+        )
+        .await;
+        let mut config = config("http://127.0.0.1:1/token");
+        config.device_url = url;
+
+        let start = device_start(&config).await.expect("a code");
+        assert_eq!(start.device_code, "dc-1");
+        assert_eq!(start.user_code, "WDJB-MJHT");
+        assert_eq!(start.verification_uri, "https://id.test/device");
+        assert_eq!((start.expires_in, start.interval), (1800, 7));
+
+        let request = sent.await.unwrap();
+        assert!(request.starts_with("POST /token"), "it is the device endpoint that is asked: {request}");
+        assert!(request.contains("client_id=volt") && request.contains("scope=read+write"), "{request}");
+
+        // What the UI receives, in the UI's spelling.
+        let json = serde_json::to_value(&start).unwrap();
+        assert_eq!(json["deviceCode"], "dc-1");
+        assert_eq!(json["userCode"], "WDJB-MJHT");
+        assert_eq!(json["verificationUriComplete"], "https://id.test/device?user_code=WDJB-MJHT");
+        assert_eq!(json["expiresIn"], 1800);
+    }
+
+    #[tokio::test]
+    async fn a_device_grant_fills_in_what_a_provider_leaves_out() {
+        // Google's `verification_url`, and no interval at all.
+        let (url, _sent) = token_endpoint(
+            r#"{"device_code":"dc-2","user_code":"ABCD","verification_url":"https://id.test/d","expires_in":600}"#,
+            200,
+        )
+        .await;
+        let mut config = config("http://127.0.0.1:1/token");
+        config.device_url = url;
+
+        let start = device_start(&config).await.unwrap();
+        assert_eq!(start.verification_uri, "https://id.test/d");
+        assert_eq!(start.interval, 5, "the RFC's default");
+        let json = serde_json::to_value(&start).unwrap();
+        assert!(json.get("verificationUriComplete").is_none(), "absent rather than null: {json}");
+
+        // No endpoint to ask is said before anything is sent.
+        config.device_url = String::new();
+        assert!(device_start(&config).await.unwrap_err().to_string().contains("device authorization URL"));
+    }
+
+    #[tokio::test]
+    async fn a_refused_device_grant_reads_as_a_refusal() {
+        let (url, _sent) =
+            token_endpoint(r#"{"error":"unauthorized_client","error_description":"not allowed this grant"}"#, 400).await;
+        let mut config = config("http://127.0.0.1:1/token");
+        config.device_url = url;
+        let error = device_start(&config).await.unwrap_err().to_string();
+        assert!(error.contains("unauthorized_client") && error.contains("not allowed this grant"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn polling_a_device_grant_says_where_it_stands() {
+        for (answer, expected) in [
+            (r#"{"error":"authorization_pending"}"#, "pending"),
+            (r#"{"error":"slow_down"}"#, "slow_down"),
+            (r#"{"error":"access_denied","error_description":"The user said no"}"#, "denied"),
+            (r#"{"error":"expired_token"}"#, "expired"),
+        ] {
+            let (url, sent) = token_endpoint(answer, 400).await;
+            let poll = device_poll(&config(&url), "dc-1").await.expect("a status, not an error");
+            assert_eq!(poll.status, expected);
+            assert!(poll.token.is_none());
+            assert_eq!(serde_json::to_value(&poll).unwrap(), serde_json::json!({ "status": expected }));
+
+            let request = sent.await.unwrap();
+            assert!(
+                request.contains("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code"),
+                "{request}"
+            );
+            assert!(request.contains("device_code=dc-1") && request.contains("client_id=volt"), "{request}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_device_grant_that_was_approved_comes_back_with_the_token() {
+        let (url, _sent) =
+            token_endpoint(r#"{"access_token":"at-dev","expires_in":60,"refresh_token":"rt-dev"}"#, 200).await;
+        let poll = device_poll(&config(&url), "dc-1").await.unwrap();
+        assert_eq!(poll.status, "done");
+
+        let json = serde_json::to_value(&poll).unwrap();
+        assert_eq!(json["token"]["accessToken"], "at-dev", "shaped like every other token: {json}");
+        assert_eq!(json["token"]["tokenType"], "Bearer");
+        assert_eq!(json["token"]["refreshToken"], "rt-dev");
+        assert!(json["token"]["expiresAt"].as_u64().is_some_and(|at| at > now()));
+    }
+
+    #[tokio::test]
+    async fn an_error_that_is_not_part_of_the_device_flow_is_still_an_error() {
+        let (url, _sent) = token_endpoint(r#"{"error":"invalid_client"}"#, 401).await;
+        let error = device_poll(&config(&url), "dc-1").await.unwrap_err().to_string();
+        assert!(error.contains("invalid_client"), "{error}");
+
+        let error = device_poll(&config("http://127.0.0.1:1/token"), "  ").await.unwrap_err().to_string();
+        assert!(error.contains("no device code"), "{error}");
     }
 }

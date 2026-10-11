@@ -25,36 +25,38 @@ type BodyKind = Body['type']
 type AuthKind = Auth['type']
 
 const bodyKinds: SegmentOption<BodyKind>[] = [
-  { value: 'none', label: 'None' },
+  { value: 'none', label: t('None') },
   { value: 'json', label: 'JSON' },
-  { value: 'text', label: 'Text' },
+  { value: 'text', label: t('Text') },
   { value: 'xml', label: 'XML' },
   { value: 'urlencoded', label: 'URL-encoded' },
   { value: 'form', label: 'Multipart' },
   { value: 'graphql', label: 'GraphQL' },
-  { value: 'binary', label: 'File' },
+  { value: 'binary', label: t('File') },
 ]
 
 const authKinds: SegmentOption<AuthKind>[] = [
-  { value: 'inherit', label: 'Inherit' },
-  { value: 'none', label: 'None' },
-  { value: 'bearer', label: 'Bearer' },
+  { value: 'inherit', label: t('Inherit from the collection') },
+  { value: 'none', label: t('No auth') },
+  { value: 'bearer', label: t('Bearer token') },
   { value: 'basic', label: 'Basic' },
-  { value: 'apikey', label: 'API key' },
+  { value: 'apikey', label: t('API key') },
   { value: 'digest', label: 'Digest' },
   { value: 'ntlm', label: 'NTLM' },
-  { value: 'awssigv4', label: 'AWS' },
+  { value: 'awssigv4', label: t('AWS Signature') },
+  { value: 'oauth1', label: 'OAuth 1.0' },
 ]
 
 const AUTH_NAMES: Record<AuthKind, string> = {
-  inherit: 'inherited auth',
-  none: 'no auth',
-  bearer: 'a bearer token',
-  basic: 'basic auth',
-  apikey: 'an API key',
-  digest: 'digest auth',
+  inherit: t('inherited auth'),
+  none: t('no auth'),
+  bearer: t('a bearer token'),
+  basic: t('basic auth'),
+  apikey: t('an API key'),
+  digest: t('digest auth'),
   ntlm: 'NTLM',
-  awssigv4: 'an AWS signature',
+  awssigv4: t('an AWS signature'),
+  oauth1: t('an OAuth 1.0 signature'),
 }
 
 // --- Per-request send options ------------------------------------------------
@@ -85,6 +87,7 @@ function toggleOption(key: OptionKey, on: boolean) {
     verify_tls: store.options.verifyTls,
     proxy: store.options.proxy ?? '',
     client_cert: store.options.clientCert ?? '',
+    ca_cert: store.options.caCert ?? '',
   }
   setOption(key, fallback[key])
 }
@@ -112,14 +115,14 @@ function removeCapture(index: number) {
 
 // --- Checks ------------------------------------------------------------------
 const CHECK_OPS: SegmentOption<Check['op']>[] = [
-  { value: 'is', label: 'is' },
-  { value: 'isnot', label: 'is not' },
-  { value: 'contains', label: 'contains' },
-  { value: 'matches', label: 'matches' },
-  { value: 'exists', label: 'exists' },
-  { value: 'missing', label: 'missing' },
-  { value: 'under', label: 'under' },
-  { value: 'over', label: 'over' },
+  { value: 'is', label: t('is') },
+  { value: 'isnot', label: t('is not') },
+  { value: 'contains', label: t('contains') },
+  { value: 'matches', label: t('matches') },
+  { value: 'exists', label: t('exists') },
+  { value: 'missing', label: t('missing') },
+  { value: 'under', label: t('under') },
+  { value: 'over', label: t('over') },
 ]
 const TAKES_VALUE = (op: Check['op']) => op !== 'exists' && op !== 'missing'
 
@@ -163,16 +166,29 @@ const requestKind = computed({
   },
 })
 
-const tabs = computed<TabItem[]>(() => [
-  { key: 'params', label: 'Params', meta: request.value.params.length || null },
-  { key: 'headers', label: 'Headers', meta: request.value.headers.length || null },
-  { key: 'body', label: 'Body', meta: request.value.body.type === 'none' ? null : request.value.body.type },
-  { key: 'auth', label: 'Auth', meta: request.value.auth.type },
-  { key: 'captures', label: 'Captures', meta: (request.value.captures?.length ?? 0) || null },
-  { key: 'checks', label: 'Tests', meta: (request.value.checks?.length ?? 0) || null },
-  { key: 'options', label: 'Options', meta: overrides.value || null },
-  { key: 'docs', label: 'Docs', dot: !!request.value.docs?.trim() },
-])
+/**
+ * Only the sections this kind of request has. A socket has no body to write
+ * before connecting and no response to test, so those tabs are not offered
+ * rather than being there and doing nothing.
+ */
+const tabs = computed<TabItem[]>(() => {
+  const kind = requestKind.value
+  const all: (TabItem & { for?: RequestKind[] })[] = [
+    { key: 'params', label: t('Params'), meta: request.value.params.length || null, for: ['http', 'websocket', 'sse'] },
+    { key: 'headers', label: t('Headers'), meta: request.value.headers.length || null },
+    { key: 'body', label: kind === 'grpc' ? t('Call') : t('Body'), meta: request.value.body.type === 'none' || kind === 'grpc' ? null : request.value.body.type, for: ['http', 'grpc'] },
+    { key: 'auth', label: t('Auth'), meta: request.value.auth.type === 'inherit' ? null : request.value.auth.type },
+    { key: 'checks', label: t('Tests'), meta: (request.value.checks?.length ?? 0) || null, for: ['http'] },
+    { key: 'captures', label: t('Captures'), meta: (request.value.captures?.length ?? 0) || null, for: ['http'] },
+    { key: 'options', label: t('Settings'), meta: overrides.value || null },
+    { key: 'docs', label: t('Notes'), dot: !!request.value.docs?.trim() },
+  ]
+  return all.filter((one) => !one.for || one.for.includes(kind))
+})
+// The tab that was open may not exist for this kind of request.
+watch(tabs, (now) => {
+  if (!now.some((one) => one.key === tab.value)) tab.value = (now.find((one) => one.key === 'body') ?? now[0]!).key as typeof tab.value
+}, { immediate: true })
 
 /**
  * Show where the request will land, query string included, and which
@@ -240,7 +256,7 @@ function setBinaryPath(path: string) {
 }
 
 async function chooseBinary() {
-  const path = await store.pickFile('Choose the file to send as the body')
+  const path = await store.pickFile(t('Choose the file to send as the body'))
   if (path) setBinaryPath(path)
 }
 
@@ -255,6 +271,7 @@ function setAuthKind(kind: AuthKind) {
     digest: { type: 'digest', username: '', password: '' },
     ntlm: { type: 'ntlm', username: '', password: '', domain: '' },
     awssigv4: { type: 'awssigv4', key_id: '', secret: '', region: 'us-east-1', service: '', session_token: '' },
+    oauth1: { type: 'oauth1', consumer_key: '', consumer_secret: '', token: '', token_secret: '', signature_method: 'HMAC-SHA1' },
   }
   request.value.auth = next[kind]
   store.touch()
@@ -347,6 +364,17 @@ const composedUrl = computed(() => {
   return query ? `${url}${url.includes('?') ? '&' : '?'}${query}` : url
 })
 
+const urlField = ref<{ focus: () => void }>()
+// Each time the store asks, once: the pane may be new (the first request of a
+// session) or already there, and a later remount must not take the caret again.
+function answerFocus() {
+  if (store.focusUrl === store.focusUrlAnswered) return
+  store.focusUrlAnswered = store.focusUrl
+  nextTick(() => urlField.value?.focus())
+}
+watch(() => store.focusUrl, answerFocus)
+onMounted(answerFocus)
+
 /** The last text typed into the URL, to show back while it still matches. */
 const typed = ref<string | null>(null)
 watch(() => store.activeId, () => (typed.value = null))
@@ -379,12 +407,13 @@ function setUrl(text: string) {
 }
 
 const sendLabel = computed(() => {
-  if (store.sending) return 'Cancel'
+  if (store.sending) return t('Cancel')
   const kind = requestKind.value
   // A streaming gRPC method is a connection, and the key says so.
-  if (kind === 'grpc') return store.grpcStreams ? (store.myStream ? 'Disconnect' : 'Connect') : 'Call'
-  if (kind === 'websocket' || kind === 'sse') return store.myStream ? 'Disconnect' : 'Connect'
-  return 'Send'
+  if (kind === 'grpc') return store.grpcStreams ? (store.myStream ? t('Disconnect') : t('Connect')) : t('Call|verb')
+  if (kind === 'websocket' || kind === 'sse') return store.myStream ? t('Disconnect') : t('Connect')
+  if (store.isSubscription) return store.myStream ? t('Unsubscribe') : t('Subscribe')
+  return t('Send')
 })
 
 /** A curl command pasted into the URL fills the whole request instead. */
@@ -396,10 +425,10 @@ function onUrlPaste(event: ClipboardEvent) {
 }
 
 const curlItems: MenuItem[] = [
-  { key: 'copy', label: 'Copy as cURL', icon: 'copy', hint: 'Secret values stay as {{name}}, safe to share' },
-  { key: 'copy-secrets', label: 'Copy with secret values', icon: 'unlock', hint: 'Ready to run; do not paste it anywhere public' },
-  { key: 'fill', label: 'Fill from cURL…', icon: 'import', hint: 'For a multi-line command', divided: true },
-  { key: 'code', label: 'Generate code…', icon: 'braces', hint: 'fetch, Python, Go, C#, PHP, Ruby', divided: true },
+  { key: 'copy', label: t('Copy as cURL'), icon: 'copy', hint: t('Secret values stay as {{name}}, safe to share') },
+  { key: 'copy-secrets', label: t('Copy with secret values'), icon: 'unlock', hint: t('Ready to run; do not paste it anywhere public') },
+  { key: 'fill', label: t('Fill from cURL…'), icon: 'import', hint: t('For a multi-line command'), divided: true },
+  { key: 'code', label: t('Generate code…'), icon: 'braces', hint: 'fetch, Python, Go, C#, PHP, Ruby', divided: true },
 ]
 
 function onCurlMenu(key: string) {
@@ -428,16 +457,32 @@ function setName(event: Event) {
   store.touch()
 }
 
+/**
+ * One picker for "what is this": an HTTP method, or one of the other kinds.
+ * To the person choosing, GET and WebSocket are answers to the same question.
+ */
+const picked = computed(() => (requestKind.value === 'http' ? request.value.method : `kind:${requestKind.value}`))
+/** A native select is as wide as its widest option; this one is as wide as what it shows. */
+const pickedWidth = computed(() => {
+  const shown = requestKind.value === 'http' ? request.value.method : (KINDS.find((kind) => kind.value === requestKind.value)?.label ?? '')
+  return `calc(${shown.length}ch + 40px)`
+})
 function setMethod(event: Event) {
-  request.value.method = (event.target as HTMLSelectElement).value
+  const value = (event.target as HTMLSelectElement).value
+  if (value.startsWith('kind:')) {
+    requestKind.value = value.slice(5) as RequestKind
+    return
+  }
+  if (requestKind.value !== 'http') requestKind.value = 'http'
+  request.value.method = value
   store.touch()
 }
 
-useShortcut('mod+enter', 'Send', () => onSend())
-useShortcut('mod+d', 'Duplicate the request', () => {
+useShortcut('mod+enter', t('Send'), () => onSend())
+useShortcut('mod+d', t('Duplicate the request'), () => {
   if (store.activeId && !store.historyEntry) store.duplicate(store.activeId)
 })
-useShortcut('mod+s', 'Save the request', () => {
+useShortcut('mod+s', t('Save the request'), () => {
   // A request reopened from history has no file yet; saving it makes one.
   if (store.historyEntry) store.saveHistoryAsNew()
   else if (store.dirty) store.save()
@@ -445,37 +490,37 @@ useShortcut('mod+s', 'Save the request', () => {
 </script>
 
 <template>
-  <section class="request" aria-label="Request">
+  <section class="request" :aria-label="t('Request')">
     <header class="head">
       <input
         class="title"
         :value="request.name"
-        aria-label="Request name"
+        :aria-label="t('Request name')"
         spellcheck="false"
-        placeholder="Untitled request"
+        :placeholder="t('Untitled request')"
         @input="setName"
       >
-      <span class="file mono" :title="store.historyEntry ? 'Not saved to a file' : (store.activeId ?? '')">
-        {{ store.historyEntry ? 'Not saved to a file' : store.activeId }}
+      <span class="file mono" :title="store.historyEntry ? t('Not saved to a file') : (store.activeId ?? '')">
+        {{ store.historyEntry ? t('Not saved to a file') : store.activeId }}
       </span>
       <span class="spacer" />
 
-      <UiMenuButton :items="curlItems" label="cURL" align="end" @select="onCurlMenu">
-        <UiIcon name="braces" :size="14" />cURL
+      <UiMenuButton :items="curlItems" :label="t('Code')" align="end" @select="onCurlMenu">
+        <UiIcon name="braces" :size="14" />{{ t('Code') }}
       </UiMenuButton>
 
       <template v-if="store.historyEntry">
-        <button v-if="originalExists" type="button" class="btn btn-quiet btn-sm" title="Open the request file this was sent from" @click="store.select(store.historyEntry.requestId!)">
-          <UiIcon name="arrow-up-right" :size="14" />Open saved request
+        <button v-if="originalExists" type="button" class="btn btn-quiet btn-sm" :title="t('Open the request file this was sent from')" @click="store.select(store.historyEntry.requestId!)">
+          <UiIcon name="arrow-up-right" :size="14" />{{ t('Open saved request') }}
         </button>
-        <button type="button" class="btn btn-sm" :title="`Write this request into the collection (${modKey}+S)`" @click="store.saveHistoryAsNew()">
-          Save as new
+        <button type="button" class="btn btn-sm" :title="t('Write this request into the collection ({mod}+S)', { mod: modKey })" @click="store.saveHistoryAsNew()">
+          {{ t('Save as new') }}
         </button>
       </template>
       <template v-else>
-        <span v-if="store.dirty" class="state"><span class="led warn" /><span class="silk">Unsaved</span></span>
-        <button type="button" class="btn btn-sm" :disabled="!store.dirty" aria-label="Save request" :title="`Save (${modKey}+S)`" @click="store.save()">
-          Save
+        <span v-if="store.dirty" class="state"><span class="led warn" /><span class="silk">{{ t('Unsaved') }}</span></span>
+        <button type="button" class="btn btn-sm" :disabled="!store.dirty" :aria-label="t('Save request')" :title="t('Save ({mod}+S)', { mod: modKey })" @click="store.save()">
+          {{ t('Save') }}
         </button>
       </template>
     </header>
@@ -483,40 +528,38 @@ useShortcut('mod+s', 'Save the request', () => {
     <div v-if="store.historyEntry" class="from-history">
       <UiIcon name="history" :size="14" />
       <span>
-        Reopened from history · sent {{ sentAt }}
-        <template v-if="store.historyEntry.environment">with <b>{{ store.historyEntry.environment }}</b></template>
+        {{ t('Reopened from history · sent {when}', { when: sentAt }) }}
+        <template v-if="store.historyEntry.environment">{{ t('with') }} <b>{{ store.historyEntry.environment }}</b></template>
       </span>
     </div>
 
     <div class="probe" :class="{ sending: store.sending }">
-      <label v-if="requestKind === 'http'" class="method-pick" :title="`Method: ${request.method}`">
-        <select class="method tag" :data-method="request.method" :value="request.method" aria-label="Method" @change="setMethod">
+      <label class="method-pick" :title="t('The method — or another kind of request: WebSocket, SSE, gRPC')">
+        <select class="method tag" :data-method="requestKind === 'http' ? request.method : 'OTHER'" :style="{ width: pickedWidth }" :value="picked" :aria-label="t('Method')" @change="setMethod">
           <option v-for="m in METHODS" :key="m" :value="m">{{ m }}</option>
-        </select>
-        <UiIcon name="chevron-down" :size="11" class="chev" />
-      </label>
-      <label v-else class="method-pick" title="What kind of request this is">
-        <select class="method tag" :value="requestKind" aria-label="Kind of request" @change="requestKind = ($event.target as HTMLSelectElement).value as RequestKind">
-          <option v-for="kind in KINDS" :key="kind.value" :value="kind.value">{{ kind.label }}</option>
+          <optgroup :label="t('Not HTTP')">
+            <option v-for="kind in KINDS.filter((one) => one.value !== 'http')" :key="kind.value" :value="`kind:${kind.value}`">{{ kind.label }}</option>
+          </optgroup>
         </select>
         <UiIcon name="chevron-down" :size="11" class="chev" />
       </label>
 
       <UiVarInput
+        ref="urlField"
         class="url"
         variant="bare"
         :model-value="composedUrl"
         :known="known"
         label="URL"
-        placeholder="{{baseUrl}}/users, or paste a whole curl command"
+        :placeholder="t('{{baseUrl}}/users, or paste a whole curl command')"
         @update:model-value="setUrl($event)"
         @enter="onSend"
         @paste="onUrlPaste"
       />
 
-      <button type="button" class="send" :class="{ cancel: store.sending }" :disabled="!store.sending && !request.url" :title="store.sending ? 'Stop this send' : `${sendLabel} (${modKey}+Enter)`" @click="onSend">
+      <button type="button" class="send" :class="{ cancel: store.sending }" :disabled="!store.sending && !request.url" :title="store.sending ? t('Stop this send') : `${sendLabel} (${modKey}+Enter)`" @click="onSend">
+        <UiIcon :name="store.sending ? 'x' : 'bolt'" :size="14" />
         <span>{{ sendLabel }}</span>
-        <UiIcon :name="store.sending ? 'x' : 'send'" :size="14" />
       </button>
     </div>
 
@@ -525,14 +568,14 @@ useShortcut('mod+s', 'Save the request', () => {
         <UiIcon name="arrow-right" :size="12" class="arrow" />
         <span class="value mono selectable" :title="resolved.value">{{ resolved.value }}</span>
       </template>
-      <span v-if="resolved.missing.length" class="chip warn undefined" :title="`No value in ${store.environment?.name ?? 'any environment'} — click a name to add it`">
-        <UiIcon name="warning" :size="12" />Undefined:
+      <span v-if="resolved.missing.length" class="chip warn undefined" :title="store.environment ? t('No value in {environment} — click a name to add it', { environment: store.environment.name }) : t('No value in any environment — click a name to add it')">
+        <UiIcon name="warning" :size="12" />{{ t('Undefined:') }}
         <button
           v-for="name in resolved.missing"
           :key="name"
           type="button"
           class="add-var"
-          :title="`Add ${name} to ${store.environment?.name ?? 'an environment'}`"
+          :title="store.environment ? t('Add {name} to {environment}', { name, environment: store.environment.name }) : t('Add {name} to an environment', { name })"
           @click="store.openEnvironmentWith = name"
         >{{ name }}</button>
       </span>
@@ -541,17 +584,17 @@ useShortcut('mod+s', 'Save the request', () => {
     <div v-if="store.curlNotice" class="curl-notice" role="status">
       <div class="notice-head">
         <span class="led ok" />
-        <span class="silk">Filled from curl</span>
+        <span class="silk">{{ t('Filled from curl') }}</span>
         <span v-if="store.curlNotice.secrets.length" class="moved">
           <UiIcon name="lock" :size="12" />
           <span>
-            {{ store.curlNotice.secrets.length === 1 ? 'Credential moved to' : 'Credentials moved to' }}
+            {{ store.curlNotice.secrets.length === 1 ? t('Credential moved to') : t('Credentials moved to') }}
             <code>{{ secretsAsVars(store.curlNotice.secrets) }}</code>
-            in <b>{{ store.curlNotice.environment }}</b>
+            {{ t('in') }} <b>{{ store.curlNotice.environment }}</b>
           </span>
         </span>
         <span class="spacer" />
-        <button type="button" class="icon-btn quiet sm" aria-label="Dismiss" title="Dismiss" @click="store.curlNotice = null">
+        <button type="button" class="icon-btn quiet sm" :aria-label="t('Dismiss')" :title="t('Dismiss')" @click="store.curlNotice = null">
           <UiIcon name="x" :size="13" />
         </button>
       </div>
@@ -560,14 +603,14 @@ useShortcut('mod+s', 'Save the request', () => {
       </ul>
     </div>
 
-    <UiTabs v-model="tab" :items="tabs" label="Request sections" />
+    <UiTabs v-model="tab" :items="tabs" :label="t('Request sections')" />
 
     <div class="panel">
       <KeyValueEditor
         v-if="tab === 'params'"
         v-model="request.params"
-        name-label="Parameter"
-        add-label="Add parameter"
+        :name-label="t('Parameter')"
+        :add-label="t('Add parameter')"
         :known="known"
         @update:model-value="store.touch()"
       />
@@ -575,36 +618,35 @@ useShortcut('mod+s', 'Save the request', () => {
       <KeyValueEditor
         v-else-if="tab === 'headers'"
         v-model="request.headers"
-        name-label="Header"
-        add-label="Add header"
+        :name-label="t('Header')"
+        :add-label="t('Add header')"
         :known="known"
         @update:model-value="store.touch()"
       />
 
       <div v-else-if="tab === 'body'" class="section">
         <div class="toolbar">
-          <UiSegmented v-model="bodyKind" :options="bodyKinds" label="Body type" size="sm" />
+          <UiSegmented v-model="bodyKind" :options="bodyKinds" :label="t('Body type')" size="sm" />
           <span class="spacer" />
-          <button v-if="request.body.type === 'json'" type="button" class="btn btn-quiet btn-sm" :disabled="!canFormat" :title="canFormat ? 'Pretty-print the JSON' : 'Not valid JSON yet'" @click="formatJson">
-            <UiIcon name="braces" :size="14" />Format
+          <button v-if="request.body.type === 'json'" type="button" class="btn btn-quiet btn-sm" :disabled="!canFormat" :title="canFormat ? t('Pretty-print the JSON') : t('Not valid JSON yet')" @click="formatJson">
+            <UiIcon name="braces" :size="14" />{{ t('Format') }}
           </button>
         </div>
 
-        <p v-if="request.body.type === 'none'" class="note">This request sends no body.</p>
+        <p v-if="request.body.type === 'none'" class="note">{{ t('This request sends no body.') }}</p>
         <div v-else-if="request.body.type === 'binary'" class="file-body">
           <UiVarInput
             :model-value="request.body.path"
             :known="known"
-            label="File to send"
+            :label="t('File to send')"
             placeholder="uploads/avatar.png"
             @update:model-value="setBinaryPath($event)"
           />
           <button type="button" class="btn btn-sm" @click="chooseBinary">
-            <UiIcon name="folder" :size="14" />Choose…
+            <UiIcon name="folder" :size="14" />{{ t('Choose…') }}
           </button>
           <p class="hint">
-            The file's bytes are the body, sent as they are. A path inside the collection
-            folder is kept relative, so it works on a teammate's machine too.
+            {{ t("The file's bytes are the body, sent as they are. A path inside the collection folder is kept relative, so it works on a teammate's machine too.") }}
           </p>
         </div>
         <GrpcEditor v-else-if="request.body.type === 'grpc'" v-model="request.body" />
@@ -614,101 +656,129 @@ useShortcut('mod+s', 'Save the request', () => {
         <KeyValueEditor
           v-else-if="'fields' in request.body"
           v-model="fieldBody"
-          name-label="Field"
-          add-label="Add field"
+          :name-label="t('Field')"
+          :add-label="t('Add field')"
           :known="known"
           :files="request.body.type === 'form'"
         />
         <UiCodeEditor
           v-else
           v-model="textBody"
-          label="Request body"
+          :label="t('Request body')"
+          :language="request.body.type"
+          :known="known"
           :placeholder="request.body.type === 'json' ? '{\n  &quot;name&quot;: &quot;{{userName}}&quot;\n}' : ''"
         />
       </div>
 
       <div v-else-if="tab === 'auth'" class="section">
         <div class="toolbar">
-          <UiSegmented v-model="authKind" :options="authKinds" label="Auth type" size="sm" />
+          <!-- A list, not a row of keys: there are too many kinds to lay side by side. -->
+          <UiSelect :model-value="authKind" :options="authKinds" :label="t('Auth type')" class="auth-pick" @update:model-value="authKind = $event as AuthKind" />
         </div>
 
         <!-- Text sits in one span: as direct flex children, the gap would split it around <code>. -->
         <p v-if="request.auth.type === 'inherit'" class="note">
           <UiIcon name="lock" :size="14" />
-          <span>Uses the collection's auth, set in <code>collection.yaml</code>: currently {{ collectionAuth }}.</span>
+          <span>{{ t("Uses the collection's auth, set in") }} <code>collection.yaml</code>{{ t(': currently {what}.', { what: collectionAuth }) }}</span>
         </p>
-        <p v-else-if="request.auth.type === 'none'" class="note">Sends no credentials, even if the collection has some.</p>
+        <p v-else-if="request.auth.type === 'none'" class="note">{{ t('Sends no credentials, even if the collection has some.') }}</p>
 
         <div v-else class="form">
           <template v-if="request.auth.type === 'bearer'">
-            <span class="silk">Token</span>
-            <UiVarInput v-model="request.auth.token" :known="known" label="Token" placeholder="{{token}}" @update:model-value="store.touch()" />
-            <span class="hint">Sent as <code>Authorization: Bearer …</code></span>
+            <span class="silk">{{ t('Token') }}</span>
+            <UiVarInput v-model="request.auth.token" :known="known" :label="t('Token')" placeholder="{{token}}" @update:model-value="store.touch()" />
+            <span class="hint">{{ t('Sent as') }} <code>Authorization: Bearer …</code></span>
           </template>
 
           <template v-else-if="request.auth.type === 'basic'">
-            <span class="silk">Username</span>
-            <UiVarInput v-model="request.auth.username" :known="known" label="Username" @update:model-value="store.touch()" />
+            <span class="silk">{{ t('Username') }}</span>
+            <UiVarInput v-model="request.auth.username" :known="known" :label="t('Username')" @update:model-value="store.touch()" />
             <span />
-            <span class="silk">Password</span>
-            <UiVarInput v-model="request.auth.password" :known="known" label="Password" placeholder="{{password}}" @update:model-value="store.touch()" />
-            <span class="hint">Keep it in a secret variable, not here.</span>
+            <span class="silk">{{ t('Password') }}</span>
+            <UiVarInput v-model="request.auth.password" :known="known" :label="t('Password')" placeholder="{{password}}" @update:model-value="store.touch()" />
+            <span class="hint">{{ t('Keep it in a secret variable, not here.') }}</span>
           </template>
 
           <template v-else-if="request.auth.type === 'apikey'">
-            <span class="silk">Name</span>
-            <UiVarInput v-model="request.auth.key" :known="known" label="Key name" placeholder="X-API-Key" @update:model-value="store.touch()" />
+            <span class="silk">{{ t('Name') }}</span>
+            <UiVarInput v-model="request.auth.key" :known="known" :label="t('Key name')" placeholder="X-API-Key" @update:model-value="store.touch()" />
             <span />
-            <span class="silk">Value</span>
-            <UiVarInput v-model="request.auth.value" :known="known" label="Key value" placeholder="{{apiKey}}" @update:model-value="store.touch()" />
+            <span class="silk">{{ t('Value') }}</span>
+            <UiVarInput v-model="request.auth.value" :known="known" :label="t('Key value')" placeholder="{{apiKey}}" @update:model-value="store.touch()" />
             <span />
-            <span class="silk">Send in</span>
+            <span class="silk">{{ t('Send in') }}</span>
             <UiSegmented
               v-model="apiKeyLocation"
-              :options="[{ value: 'header', label: 'Header' }, { value: 'query', label: 'Query string' }]"
-              label="Send API key in"
+              :options="[{ value: 'header', label: t('Header') }, { value: 'query', label: t('Query string') }]"
+              :label="t('Send API key in')"
               size="sm"
             />
             <span />
           </template>
 
           <template v-else-if="request.auth.type === 'digest'">
-            <span class="silk">Username</span>
-            <UiVarInput v-model="request.auth.username" :known="known" label="Username" @update:model-value="store.touch()" />
+            <span class="silk">{{ t('Username') }}</span>
+            <UiVarInput v-model="request.auth.username" :known="known" :label="t('Username')" @update:model-value="store.touch()" />
             <span />
-            <span class="silk">Password</span>
-            <UiVarInput v-model="request.auth.password" :known="known" label="Password" placeholder="{{password}}" @update:model-value="store.touch()" />
-            <span class="hint">Answered after the server challenges, so the first send returns 401 and the second carries it.</span>
+            <span class="silk">{{ t('Password') }}</span>
+            <UiVarInput v-model="request.auth.password" :known="known" :label="t('Password')" placeholder="{{password}}" @update:model-value="store.touch()" />
+            <span class="hint">{{ t('Answered after the server challenges, so the first send returns 401 and the second carries it.') }}</span>
           </template>
 
           <template v-else-if="request.auth.type === 'ntlm'">
-            <span class="silk">Username</span>
-            <UiVarInput v-model="request.auth.username" :known="known" label="Username" @update:model-value="store.touch()" />
+            <span class="silk">{{ t('Username') }}</span>
+            <UiVarInput v-model="request.auth.username" :known="known" :label="t('Username')" @update:model-value="store.touch()" />
             <span />
-            <span class="silk">Password</span>
-            <UiVarInput v-model="request.auth.password" :known="known" label="Password" placeholder="{{password}}" @update:model-value="store.touch()" />
+            <span class="silk">{{ t('Password') }}</span>
+            <UiVarInput v-model="request.auth.password" :known="known" :label="t('Password')" placeholder="{{password}}" @update:model-value="store.touch()" />
             <span />
-            <span class="silk">Domain</span>
-            <UiVarInput v-model="request.auth.domain" :known="known" label="Domain" @update:model-value="store.touch()" />
-            <span class="hint">Three legs down one connection, so this request is sent over HTTP/1.1.</span>
+            <span class="silk">{{ t('Domain') }}</span>
+            <UiVarInput v-model="request.auth.domain" :known="known" :label="t('Domain')" @update:model-value="store.touch()" />
+            <span class="hint">{{ t('Three legs down one connection, so this request is sent over HTTP/1.1.') }}</span>
           </template>
 
           <template v-else-if="request.auth.type === 'awssigv4'">
-            <span class="silk">Key ID</span>
-            <UiVarInput v-model="request.auth.key_id" :known="known" label="Access key ID" placeholder="{{awsKeyId}}" @update:model-value="store.touch()" />
+            <span class="silk">{{ t('Key ID') }}</span>
+            <UiVarInput v-model="request.auth.key_id" :known="known" :label="t('Access key ID')" placeholder="{{awsKeyId}}" @update:model-value="store.touch()" />
             <span />
-            <span class="silk">Secret</span>
-            <UiVarInput v-model="request.auth.secret" :known="known" label="Secret access key" placeholder="{{awsSecret}}" @update:model-value="store.touch()" />
+            <span class="silk">{{ t('Secret') }}</span>
+            <UiVarInput v-model="request.auth.secret" :known="known" :label="t('Secret access key')" placeholder="{{awsSecret}}" @update:model-value="store.touch()" />
             <span />
-            <span class="silk">Region</span>
-            <UiVarInput v-model="request.auth.region" :known="known" label="Region" placeholder="eu-west-1" @update:model-value="store.touch()" />
+            <span class="silk">{{ t('Region') }}</span>
+            <UiVarInput v-model="request.auth.region" :known="known" :label="t('Region')" placeholder="eu-west-1" @update:model-value="store.touch()" />
             <span />
-            <span class="silk">Service</span>
-            <UiVarInput v-model="request.auth.service" :known="known" label="Service" placeholder="execute-api" @update:model-value="store.touch()" />
+            <span class="silk">{{ t('Service') }}</span>
+            <UiVarInput v-model="request.auth.service" :known="known" :label="t('Service')" placeholder="execute-api" @update:model-value="store.touch()" />
             <span />
-            <span class="silk">Session</span>
-            <UiVarInput v-model="request.auth.session_token" :known="known" label="Session token" placeholder="optional" @update:model-value="store.touch()" />
-            <span class="hint">Signed over the finished request, so a copied cURL command works for about fifteen minutes.</span>
+            <span class="silk">{{ t('Session') }}</span>
+            <UiVarInput v-model="request.auth.session_token" :known="known" :label="t('Session token')" :placeholder="t('optional')" @update:model-value="store.touch()" />
+            <span class="hint">{{ t('Signed over the finished request, so a copied cURL command works for about fifteen minutes.') }}</span>
+          </template>
+
+          <template v-else-if="request.auth.type === 'oauth1'">
+            <span class="silk">{{ t('Consumer key') }}</span>
+            <UiVarInput v-model="request.auth.consumer_key" :known="known" :label="t('Consumer key')" placeholder="{{consumerKey}}" @update:model-value="store.touch()" />
+            <span />
+            <span class="silk">{{ t('Consumer secret') }}</span>
+            <UiVarInput v-model="request.auth.consumer_secret" :known="known" :label="t('Consumer secret')" placeholder="{{consumerSecret}}" @update:model-value="store.touch()" />
+            <span />
+            <span class="silk">{{ t('Token') }}</span>
+            <UiVarInput v-model="request.auth.token" :known="known" :label="t('Access token')" :placeholder="t('optional')" @update:model-value="store.touch()" />
+            <span />
+            <span class="silk">{{ t('Token secret') }}</span>
+            <UiVarInput v-model="request.auth.token_secret" :known="known" :label="t('Token secret')" :placeholder="t('optional')" @update:model-value="store.touch()" />
+            <span />
+            <span class="silk">{{ t('Signature') }}</span>
+            <UiSegmented
+              v-model="request.auth.signature_method"
+              :options="[{ value: 'HMAC-SHA1', label: 'HMAC-SHA1' }, { value: 'HMAC-SHA256', label: 'HMAC-SHA256' }]"
+              :label="t('Signature method')"
+              size="sm"
+              mono
+              @update:model-value="store.touch()"
+            />
+            <span class="hint">{{ t('Signed over the finished request and sent as an') }} <code>Authorization: OAuth …</code> {{ t('header.') }}</span>
           </template>
 
         </div>
@@ -716,17 +786,17 @@ useShortcut('mod+s', 'Save the request', () => {
       <div v-else-if="tab === 'captures'" class="section captures">
         <p class="lede">
           <span>
-            Take a value out of the response and keep it in the environment, so the next
-            request can use it. Read <code>status</code>, <code>header:Name</code>,
-            <code>body</code>, or a path into a JSON body like <code>$.data.token</code>.
+            {{ t('Keep a value from the response in the environment, so the next request can use it. Read') }}
+            <code>status</code>, <code>header:Name</code>, <code>body</code>, {{ t('or a path like') }}
+            <code>$.data.token</code>.
           </span>
         </p>
 
-        <div class="table" role="table" aria-label="Captures">
+        <div class="table" role="table" :aria-label="t('Captures')">
           <div class="row head" role="row">
-            <span role="columnheader" class="silk">Variable</span>
-            <span role="columnheader" class="silk">From the response</span>
-            <span role="columnheader" class="silk center">Secret</span>
+            <span role="columnheader" class="silk">{{ t('Variable') }}</span>
+            <span role="columnheader" class="silk">{{ t('From the response') }}</span>
+            <span role="columnheader" class="silk center">{{ t('Secret') }}</span>
             <span role="columnheader" />
           </div>
 
@@ -735,7 +805,7 @@ useShortcut('mod+s', 'Save the request', () => {
               class="field inline mono"
               :value="row.name"
               :placeholder="row.name || row.from ? '' : 'token'"
-              aria-label="Variable to write"
+              :aria-label="t('Variable to write')"
               spellcheck="false"
               @input="updateCapture(i, { name: ($event.target as HTMLInputElement).value })"
             >
@@ -743,7 +813,7 @@ useShortcut('mod+s', 'Save the request', () => {
               class="field inline mono"
               :value="row.from"
               :placeholder="row.name || row.from ? '' : '$.data.token'"
-              aria-label="Where to read it from"
+              :aria-label="t('Where to read it from')"
               spellcheck="false"
               @input="updateCapture(i, { from: ($event.target as HTMLInputElement).value })"
             >
@@ -754,8 +824,8 @@ useShortcut('mod+s', 'Save the request', () => {
                 :class="{ on: row.secret }"
                 :disabled="!row.name"
                 :aria-pressed="!!row.secret"
-                :aria-label="row.secret ? 'Kept as a secret' : 'Kept in the environment YAML'"
-                :title="row.secret ? 'Secret — stored in the gitignored .env file' : 'Plain — stored in the environment YAML'"
+                :aria-label="row.secret ? t('Kept as a secret') : t('Kept in the environment YAML')"
+                :title="row.secret ? t('Secret — stored in the gitignored .env file') : t('Plain — stored in the environment YAML')"
                 @click="updateCapture(i, { secret: !row.secret })"
               >
                 <UiIcon :name="row.secret ? 'lock' : 'unlock'" :size="13" />
@@ -766,8 +836,8 @@ useShortcut('mod+s', 'Save the request', () => {
                 v-if="row.name || row.from"
                 type="button"
                 class="icon-btn quiet sm"
-                :aria-label="`Remove ${row.name || 'capture'}`"
-                title="Remove"
+                :aria-label="row.name ? t('Remove {name}', { name: row.name }) : t('Remove capture')"
+                :title="t('Remove')"
                 @click="removeCapture(i)"
               >
                 <UiIcon name="x" :size="14" />
@@ -780,18 +850,17 @@ useShortcut('mod+s', 'Save the request', () => {
       <div v-else-if="tab === 'checks'" class="section captures">
         <p class="lede">
           <span>
-            What has to be true of the response. The same places a capture reads —
-            <code>status</code>, <code>time</code>, <code>header:Name</code>,
-            <code>body</code>, <code>$.data.id</code> — with something to compare.
-            A failing test is what makes a run fail, here and in CI.
+            {{ t('What has to be true of the response. Read') }} <code>status</code>, <code>time</code>,
+            <code>header:Name</code>, <code>body</code> {{ t('or a path like') }} <code>$.data.id</code>,
+            {{ t('and say what it should be.') }}
           </span>
         </p>
 
-        <div class="table" role="table" aria-label="Checks">
+        <div class="table" role="table" :aria-label="t('Checks')">
           <div class="row check head" role="row">
-            <span role="columnheader" class="silk">From the response</span>
-            <span role="columnheader" class="silk">Compare</span>
-            <span role="columnheader" class="silk">Value</span>
+            <span role="columnheader" class="silk">{{ t('From the response') }}</span>
+            <span role="columnheader" class="silk">{{ t('Compare') }}</span>
+            <span role="columnheader" class="silk">{{ t('Value') }}</span>
             <span role="columnheader" />
           </div>
 
@@ -800,14 +869,14 @@ useShortcut('mod+s', 'Save the request', () => {
               class="field inline mono"
               :value="row.from"
               :placeholder="row.from ? '' : 'status'"
-              aria-label="What to read"
+              :aria-label="t('What to read')"
               spellcheck="false"
               @input="updateCheck(i, { from: ($event.target as HTMLInputElement).value })"
             >
             <UiSelect
               :model-value="row.op"
               :options="CHECK_OPS.map((op) => ({ value: op.value, label: op.label }))"
-              label="How to compare"
+              :label="t('How to compare')"
               class="op"
               @update:model-value="updateCheck(i, { op: $event as Check['op'] })"
             />
@@ -816,18 +885,18 @@ useShortcut('mod+s', 'Save the request', () => {
               class="field inline mono"
               :value="row.value ?? ''"
               :placeholder="row.from ? '' : '200'"
-              aria-label="Expected value"
+              :aria-label="t('Expected value')"
               spellcheck="false"
               @input="updateCheck(i, { value: ($event.target as HTMLInputElement).value })"
             >
-            <span v-else class="nothing silk">nothing to compare</span>
+            <span v-else class="nothing silk">{{ t('nothing to compare') }}</span>
             <span class="center">
               <button
                 v-if="row.from"
                 type="button"
                 class="icon-btn quiet sm"
-                :aria-label="`Remove the check on ${row.from}`"
-                title="Remove"
+                :aria-label="t('Remove the check on {from}', { from: row.from })"
+                :title="t('Remove')"
                 @click="removeCheck(i)"
               >
                 <UiIcon name="x" :size="14" />
@@ -840,27 +909,19 @@ useShortcut('mod+s', 'Save the request', () => {
       <div v-else-if="tab === 'options'" class="section options">
         <p class="lede">
           <span>
-            How this one request goes out. Unticked, the send options follow Settings,
-            so a collection stays portable between machines.
+            {{ t('How this one request goes out. Unticked, the send options follow Settings, so a collection stays portable between machines.') }}
           </span>
         </p>
-
-        <div class="opt">
-          <span class="silk kind-label">This request is</span>
-          <div class="control">
-            <UiSegmented v-model="requestKind" :options="KINDS" label="Kind of request" size="sm" />
-          </div>
-        </div>
 
         <div class="opt">
           <label class="pick">
             <input
               type="checkbox"
               :checked="overridden('timeout_ms')"
-              aria-label="Override the timeout"
+              :aria-label="t('Override the timeout')"
               @change="toggleOption('timeout_ms', ($event.target as HTMLInputElement).checked)"
             >
-            <span class="silk">Timeout</span>
+            <span class="silk">{{ t('Timeout') }}</span>
           </label>
           <div class="control">
             <input
@@ -868,7 +929,7 @@ useShortcut('mod+s', 'Save the request', () => {
               type="number"
               min="1"
               step="500"
-              aria-label="Timeout in milliseconds"
+              :aria-label="t('Timeout in milliseconds')"
               :disabled="!overridden('timeout_ms')"
               :value="request.options?.timeout_ms ?? store.options.timeoutMs"
               @input="setOption('timeout_ms', Math.max(1, Number(($event.target as HTMLInputElement).value) || 1))"
@@ -882,22 +943,22 @@ useShortcut('mod+s', 'Save the request', () => {
             <input
               type="checkbox"
               :checked="overridden('follow_redirects')"
-              aria-label="Override redirects"
+              :aria-label="t('Override redirects')"
               @change="toggleOption('follow_redirects', ($event.target as HTMLInputElement).checked)"
             >
-            <span class="silk">Redirects</span>
+            <span class="silk">{{ t('Redirects') }}</span>
           </label>
           <div class="control">
             <label class="switch-row">
               <input
                 type="checkbox"
                 class="switch"
-                aria-label="Follow redirects"
+                :aria-label="t('Follow redirects')"
                 :disabled="!overridden('follow_redirects')"
                 :checked="request.options?.follow_redirects ?? store.options.followRedirects"
                 @change="setOption('follow_redirects', ($event.target as HTMLInputElement).checked)"
               >
-              <span>Follow up to 10</span>
+              <span>{{ t('Follow up to 10') }}</span>
             </label>
           </div>
         </div>
@@ -907,7 +968,7 @@ useShortcut('mod+s', 'Save the request', () => {
             <input
               type="checkbox"
               :checked="overridden('verify_tls')"
-              aria-label="Override TLS verification"
+              :aria-label="t('Override TLS verification')"
               @change="toggleOption('verify_tls', ($event.target as HTMLInputElement).checked)"
             >
             <span class="silk">TLS</span>
@@ -917,15 +978,15 @@ useShortcut('mod+s', 'Save the request', () => {
               <input
                 type="checkbox"
                 class="switch"
-                aria-label="Verify certificates"
+                :aria-label="t('Verify certificates')"
                 :disabled="!overridden('verify_tls')"
                 :checked="request.options?.verify_tls ?? store.options.verifyTls"
                 @change="setOption('verify_tls', ($event.target as HTMLInputElement).checked)"
               >
-              <span>Verify certificates</span>
+              <span>{{ t('Verify certificates') }}</span>
             </label>
             <span v-if="request.options?.verify_tls === false" class="warn-note">
-              <UiIcon name="warning" :size="13" />Anyone on the network can read this request.
+              <UiIcon name="warning" :size="13" />{{ t('Anyone on the network can read this request.') }}
             </span>
           </div>
         </div>
@@ -935,22 +996,22 @@ useShortcut('mod+s', 'Save the request', () => {
             <input
               type="checkbox"
               :checked="overridden('proxy')"
-              aria-label="Override the proxy"
+              :aria-label="t('Override the proxy')"
               @change="toggleOption('proxy', ($event.target as HTMLInputElement).checked)"
             >
-            <span class="silk">Proxy</span>
+            <span class="silk">{{ t('Proxy') }}</span>
           </label>
           <div class="control">
             <input
               class="field mono"
-              aria-label="Proxy URL"
+              :aria-label="t('Proxy URL')"
               spellcheck="false"
               :placeholder="store.options.proxy || 'http://127.0.0.1:8080'"
               :disabled="!overridden('proxy')"
               :value="request.options?.proxy ?? store.options.proxy ?? ''"
               @input="setOption('proxy', ($event.target as HTMLInputElement).value)"
             >
-            <span v-if="overridden('proxy') && !request.options?.proxy" class="unit silk">direct</span>
+            <span v-if="overridden('proxy') && !request.options?.proxy" class="unit silk">{{ t('direct') }}</span>
           </div>
         </div>
 
@@ -959,20 +1020,44 @@ useShortcut('mod+s', 'Save the request', () => {
             <input
               type="checkbox"
               :checked="overridden('client_cert')"
-              aria-label="Override the client certificate"
+              :aria-label="t('Override the client certificate')"
               @change="toggleOption('client_cert', ($event.target as HTMLInputElement).checked)"
             >
-            <span class="silk">Client cert</span>
+            <span class="silk">{{ t('Client cert') }}</span>
           </label>
           <div class="control">
             <input
               class="field mono"
-              aria-label="Client certificate path"
+              :aria-label="t('Client certificate path')"
               spellcheck="false"
               :placeholder="store.options.clientCert || 'certs/client.pem'"
               :disabled="!overridden('client_cert')"
               :value="request.options?.client_cert ?? store.options.clientCert ?? ''"
               @input="setOption('client_cert', ($event.target as HTMLInputElement).value)"
+            >
+            <span class="unit silk">PEM</span>
+          </div>
+        </div>
+
+        <div class="opt">
+          <label class="pick">
+            <input
+              type="checkbox"
+              :checked="overridden('ca_cert')"
+              :aria-label="t('Override the trusted authorities')"
+              @change="toggleOption('ca_cert', ($event.target as HTMLInputElement).checked)"
+            >
+            <span class="silk">{{ t('Trusted CA') }}</span>
+          </label>
+          <div class="control">
+            <input
+              class="field mono"
+              :aria-label="t('Trusted authorities path')"
+              spellcheck="false"
+              :placeholder="store.options.caCert || 'certs/ca.pem'"
+              :disabled="!overridden('ca_cert')"
+              :value="request.options?.ca_cert ?? store.options.caCert ?? ''"
+              @input="setOption('ca_cert', ($event.target as HTMLInputElement).value)"
             >
             <span class="unit silk">PEM</span>
           </div>
@@ -984,8 +1069,8 @@ useShortcut('mod+s', 'Save the request', () => {
         <textarea
           class="docs"
           :value="request.docs ?? ''"
-          aria-label="Notes"
-          placeholder="What this request is for, what it needs first, anything surprising about the response…"
+          :aria-label="t('Notes')"
+          :placeholder="t('What this request is for, what it needs first, anything surprising about the response…')"
           @input="request.docs = ($event.target as HTMLTextAreaElement).value; store.touch()"
         />
       </div>
@@ -1000,8 +1085,8 @@ useShortcut('mod+s', 'Save the request', () => {
   display: flex;
   align-items: center;
   gap: var(--s-2);
-  min-height: 44px;
-  padding: var(--s-2) var(--s-4) var(--s-1);
+  min-height: 46px;
+  padding: var(--s-3) var(--s-3) var(--s-1) var(--s-4);
 }
 .title {
   flex: 0 1 auto;
@@ -1012,15 +1097,15 @@ useShortcut('mod+s', 'Save the request', () => {
   border: 1px solid transparent;
   border-radius: var(--r-sm);
   background: transparent;
-  font-weight: 600;
-  font-size: 15px;
-  letter-spacing: -0.01em;
+  font-weight: 650;
+  font-size: 16px;
+  letter-spacing: -0.02em;
   line-height: 1.3;
   text-overflow: ellipsis;
   transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
 .title:hover { background: var(--hover); }
-.title:focus { background: var(--well); border-color: var(--accent); }
+.title:focus { background: var(--well); border-color: var(--focus); }
 .file { min-width: 0; color: var(--faint); font-size: var(--t-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .state { display: flex; align-items: center; gap: 6px; flex: none; padding: 0 4px; }
@@ -1040,70 +1125,72 @@ useShortcut('mod+s', 'Save the request', () => {
 .from-history .ui-icon { color: var(--silk); }
 
 /*
- * The URL bar: method stamp, address, Send. One bar, because to the person
- * typing it is one thing — where, and go.
+ * The URL bar: what, where, and go — one long pill, because to the person
+ * typing it is one thing. The method is a mark at its head and the Send key
+ * is the highlighter at its tail.
  */
 .probe {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   height: var(--h-probe);
-  margin: var(--s-1) var(--s-4) 0;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
+  margin: var(--s-1) var(--s-3) 0;
+  padding: 0 5px;
+  border: 1.5px solid transparent;
+  border-radius: var(--r-full);
   background: var(--well);
-  overflow: hidden;
   flex: none;
-  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
-.probe:hover { border-color: var(--line-strong); }
-.probe:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-tint); }
+.probe:focus-within { border-color: var(--focus); background: var(--bg-2); }
 
 .method-pick {
   position: relative;
   display: flex;
   align-items: center;
-  padding: 0 4px 0 8px;
-  border-right: 1px solid var(--line);
   flex: none;
 }
 .method-pick .method {
   appearance: none;
-  height: 22px;
-  padding: 0 22px 0 8px;
+  padding: 0 24px 0 13px;
   border: 0;
+  text-align: left;
+  /* On the well a wash of the method's colour is too faint; the surface is not. */
+  background: var(--bg-1);
+  box-shadow: var(--shadow-panel);
   cursor: default;
 }
-.method-pick .method:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.method-pick option { color: var(--ink); background: var(--bg-3); font-family: var(--font-mono); }
-.method-pick .chev { position: absolute; right: 10px; color: var(--on-method); pointer-events: none; }
+.probe:focus-within .method-pick .method { background: var(--well); box-shadow: none; }
+.method-pick .method:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.method-pick option, .method-pick optgroup { color: var(--ink); background: var(--bg-3); font-family: var(--font-mono); }
+.method-pick .chev { position: absolute; right: 10px; color: var(--silk); pointer-events: none; }
 
 .url { flex: 1; min-width: 0; height: 100%; }
 .url :deep(.mirror), .url :deep(.real) { font-size: 13px; }
 .url :deep(.real), .url :deep(.mirror) { padding-left: var(--s-3); }
 
-/* The one key that does the thing. */
+/* The one key that does the thing: the bolt, on the highlighter. */
 .send {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 16px 0 18px;
+  gap: 6px;
+  height: 32px;
+  padding: 0 16px 0 12px;
+  border-radius: var(--r-full);
   background: var(--accent);
   color: var(--accent-ink);
-  font-weight: 600;
+  font-weight: 650;
   font-size: var(--t-body);
-  transition: background var(--dur) var(--ease);
+  transition: background var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
+.send :deep(.ui-icon) { stroke-width: 1.75; }
 .send:hover:not(:disabled) { background: var(--accent-hi); }
-.send:active:not(:disabled) { background: var(--accent-lo); }
-.send:disabled { background: var(--bg-0); color: var(--faint); border-left: 1px solid var(--line); }
+.send:active:not(:disabled) { background: var(--accent-lo); transform: scale(0.97); }
+.send:disabled { background: color-mix(in srgb, var(--ink) 7%, var(--well)); color: var(--faint); }
 /* While a request is in flight the key is the way to stop it. */
-.send.cancel { background: var(--ink-2); }
-.send.cancel:hover { background: var(--ink); }
-.send:focus-visible { outline-offset: -3px; }
-
-/* While a request is in flight the bar's edge moves. */
-.sending .probe { border-color: var(--accent); }
+.send.cancel { background: var(--ink); color: var(--bg-1); }
+.send.cancel:hover { background: var(--ink-2); }
+.send:focus-visible { outline-offset: 2px; border-radius: var(--r-full); }
 .resolved .undefined { gap: 4px; }
 .add-var {
   padding: 0 4px;
@@ -1119,8 +1206,8 @@ useShortcut('mod+s', 'Save the request', () => {
   display: flex;
   align-items: center;
   gap: var(--s-2);
-  min-height: 26px;
-  padding: 4px var(--s-4) 0 calc(var(--s-4) + 8px);
+  min-height: 24px;
+  padding: 4px var(--s-4) 0 calc(var(--s-4) + 10px);
   min-width: 0;
 }
 .resolved .arrow { color: var(--faint); }
@@ -1159,7 +1246,7 @@ useShortcut('mod+s', 'Save the request', () => {
 }
 .notice-notes li + li { margin-top: 2px; }
 
-.request :deep(.ui-tabs) { margin-top: var(--s-2); }
+.request :deep(.ui-tabs) { margin-top: var(--s-1); }
 
 .panel { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
 .section { flex: 1; display: flex; flex-direction: column; min-height: 0; }
@@ -1168,9 +1255,14 @@ useShortcut('mod+s', 'Save the request', () => {
   display: flex;
   align-items: center;
   gap: var(--s-2);
-  padding: var(--s-3) var(--s-4);
+  padding: var(--s-2) var(--s-3) var(--s-3);
   flex: none;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.toolbar::-webkit-scrollbar { display: none; }
+.auth-pick :deep(select) { width: 240px; }
 
 .file-body {
   display: grid;
@@ -1193,11 +1285,12 @@ useShortcut('mod+s', 'Save the request', () => {
 }
 code { font-family: var(--font-mono); font-size: 0.95em; color: var(--ink-2); }
 
-.section :deep(.ui-editor) { border-top: 1px solid var(--line-soft); }
+.section :deep(.ui-editor) { margin: 0 var(--s-3) var(--s-3); border-radius: var(--r-md); overflow: hidden; }
 
 .form {
   display: grid;
-  grid-template-columns: 96px minmax(0, 420px) minmax(0, 1fr);
+  /* The label column grows with its longest label: another language needs more. */
+  grid-template-columns: minmax(96px, max-content) minmax(0, 420px) minmax(0, 1fr);
   gap: var(--s-2) var(--s-3);
   align-items: center;
   padding: var(--s-1) var(--s-4) var(--s-4);
@@ -1231,7 +1324,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; color: var(--ink-2); }
 }
 .opt {
   display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
+  grid-template-columns: minmax(150px, max-content) minmax(0, 1fr);
   gap: var(--s-3);
   align-items: center;
   padding: 7px 0;
@@ -1268,7 +1361,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; color: var(--ink-2); }
   place-items: center;
   width: 28px;
   height: 22px;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: var(--r-sm);
   color: var(--silk);
   background: var(--well);

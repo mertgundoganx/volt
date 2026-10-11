@@ -46,9 +46,8 @@ function onKey(event: KeyboardEvent, index: number) {
   flex: none;
   gap: 2px;
   padding: 2px;
-  border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  background: var(--bg-0);
+  background: var(--well);
 }
 
 .opt {
@@ -57,7 +56,7 @@ function onKey(event: KeyboardEvent, index: number) {
   gap: 6px;
   height: 24px;
   padding: 0 10px;
-  border-radius: 4px;
+  border-radius: 6px;
   color: var(--silk);
   font-size: var(--t-small);
   font-weight: 500;
@@ -68,7 +67,7 @@ function onKey(event: KeyboardEvent, index: number) {
 .opt.on {
   background: var(--bg-2);
   color: var(--ink);
-  box-shadow: 0 0 0 1px var(--line);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.10);
 }
 .opt:focus-visible { outline-offset: 1px; }
 

@@ -105,6 +105,9 @@ pub fn generate(
     if plan.aws.is_some() {
         notes.push("AWS Signature V4 is computed at send time and is not in the snippet; sign it with the AWS SDK.".to_string());
     }
+    if plan.oauth1.is_some() {
+        notes.push("OAuth 1.0a is signed at send time with a fresh nonce and timestamp, so it is not in the snippet; sign it with an OAuth 1.0 library.".to_string());
+    }
     match &plan.body {
         PlanBody::Multipart(_) => notes.push("The multipart body is a placeholder; build it with the language's form helper.".to_string()),
         PlanBody::File { .. } => notes.push("The file body is a placeholder; read the file and send its bytes.".to_string()),
@@ -574,5 +577,30 @@ mod tests {
 
         assert!(python.contains("timeout=2.5"), "{python}");
         assert!(python.contains("verify=False") && python.contains("allow_redirects=False"), "{python}");
+    }
+
+    #[test]
+    fn an_oauth1_request_says_the_snippet_is_not_signed() {
+        let mut r = request();
+        r.auth = Auth::OAuth1 {
+            consumer_key: "ck".into(),
+            consumer_secret: "cs".into(),
+            token: String::new(),
+            token_secret: String::new(),
+            signature_method: crate::model::OAuth1Signature::HmacSha1,
+        };
+        let scopes = collection::Scopes::default();
+        let out = generate(
+            std::path::Path::new("."),
+            &r,
+            &[],
+            &scopes,
+            &ExecOptions::default(),
+            Language::ALL[0],
+            true,
+        )
+        .unwrap();
+        assert!(out.notes.iter().any(|note| note.contains("OAuth 1.0a")), "{:?}", out.notes);
+        assert!(!out.code.contains("oauth_signature"), "a signature that would be stale is not printed as if it were good");
     }
 }

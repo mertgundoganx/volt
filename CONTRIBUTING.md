@@ -303,9 +303,17 @@ the last one, so the test never touches a collection of yours. (A WebDriver
 passes every argument on as a `--switch`, which is why leading dashes are
 dropped before the path is checked.) It needs no package beyond Node itself.
 
+### Every language says everything
+
+`pnpm i18n` (`tests/i18n.mjs`) reads the dictionaries under `app/i18n/` and
+fails when a language is missing a sentence another one has, when a
+translation has lost a `{placeholder}`, or when the code calls `t('…')`
+with a sentence no dictionary holds. CI runs it. Adding a visible string
+means adding it to all seven; the check names the ones still missing.
+
 ### Every feature, on the real binary
 
-`tests/e2e/suite/` is the same approach made thorough: three suites and a
+`tests/e2e/suite/` is the same approach made thorough: four suites and a
 local server (`server.mjs`) with an endpoint for each thing the app has to
 handle — echo, status codes, slow, cookies, redirects, basic auth, a login
 that hands out a token, HTML, an image, a large JSON body, server-sent
@@ -315,12 +323,14 @@ events, a WebSocket, GraphQL and an OAuth token endpoint.
 | --- | --- |
 | `http.mjs` | Sending, the URL bar and params, bodies, auth, captures, tests, cookies, redirects, cancel, the response views, the tree, environments and secrets, curl, code, history, the runner, import and export, WebSocket and SSE, GraphQL, the mock server, themes, tabs across a restart |
 | `around.mjs` | Collection and folder settings, per-request options, OAuth, the cookie jar, the bin, copying to another collection, monitors, keyboard shortcuts, runner skips, examples, the undefined-variable link, history to a request |
+| `bench.mjs` | The top strip and Tools, the collections list, the method-and-kind picker, panes side by side, the body editor, the path filter, Turkish, OAuth 1.0, the password and device grants, a GraphQL subscription, HAR and Bruno import, OpenAPI export, the certificate settings |
 | `additions.mjs` | Made-up values, `matches`, the history filter, images, file bodies, environment import, data files, code notes, the client certificate setting, `ws://` detection |
 
 ```bash
 EDGEDRIVER=path/to/msedgedriver.exe node tests/e2e/suite/http.mjs
 EDGEDRIVER=path/to/msedgedriver.exe node tests/e2e/suite/around.mjs
 EDGEDRIVER=path/to/msedgedriver.exe node tests/e2e/suite/additions.mjs
+EDGEDRIVER=path/to/msedgedriver.exe node tests/e2e/suite/bench.mjs
 # SECTIONS=http,tree node tests/e2e/suite/http.mjs runs just those sections
 ```
 
@@ -331,7 +341,8 @@ the app believed, not only what it drew. Two things they cannot do: click a
 native dialog (a delete's confirmation, a file picker), so those steps call
 what follows the dialog directly; and keep out of the app's settings — the
 throwaway collections they open land in the recent list of the volt they
-run as.
+run as. They select controls by their English labels, so each suite puts the
+interface in English when it starts and puts your language back when it ends.
 
 For a quicker loop while fixing the UI, build once with `cargo build` (no
 `--no-bundle`, no embedded SPA): that binary loads the Nuxt dev server on

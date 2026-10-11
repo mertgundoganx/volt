@@ -79,7 +79,7 @@ function onKey(event: KeyboardEvent) {
             <h2 :id="titleId">{{ title }}</h2>
           </slot>
         </div>
-        <button type="button" class="icon-btn quiet" aria-label="Close" title="Close (Esc)" @click="emit('close')">
+        <button type="button" class="icon-btn quiet" :aria-label="t('Close')" :title="t('Close (Esc)')" @click="emit('close')">
           <UiIcon name="x" />
         </button>
       </header>

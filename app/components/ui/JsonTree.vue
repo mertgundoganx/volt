@@ -94,9 +94,9 @@ function nameFor(node: Node) {
 
 <template>
   <div class="ui-json-tree mono">
-    <p v-if="parsed.error" class="note">Not JSON: {{ parsed.error }}</p>
+    <p v-if="parsed.error" class="note">{{ t('Not JSON: {error}', { error: parsed.error }) }}</p>
     <p v-else-if="tooLarge" class="note">
-      {{ parsed.count.toLocaleString() }} values is more than a tree reads well. Use Pretty for this one.
+      {{ t('{n} values is more than a tree reads well. Use Pretty for this one.', { n: parsed.count.toLocaleString() }) }}
     </p>
     <template v-else>
       <div
@@ -110,15 +110,15 @@ function nameFor(node: Node) {
           v-if="node.children"
           type="button"
           class="fold"
-          :aria-label="folded.has(node.path) ? `Unfold ${node.path}` : `Fold ${node.path}`"
+          :aria-label="folded.has(node.path) ? t('Unfold {path}', { path: node.path }) : t('Fold {path}', { path: node.path })"
           @click="toggle(node.path)"
         >
           <UiIcon :name="folded.has(node.path) ? 'chevron-right' : 'chevron-down'" :size="12" />
         </button>
         <span v-else class="fold-space" />
 
-        <template v-if="node.depth > 0"><span class="key">{{ node.key }}</span><span class="punc">: </span></template><span v-if="node.kind === 'object'" class="punc">{{ folded.has(node.path) ? `{…} ${node.size} ${node.size === 1 ? 'field' : 'fields'}` : '{' }}</span>
-        <span v-else-if="node.kind === 'array'" class="punc">{{ folded.has(node.path) ? `[…] ${node.size} ${node.size === 1 ? 'item' : 'items'}` : '[' }}</span>
+        <template v-if="node.depth > 0"><span class="key">{{ node.key }}</span><span class="punc">: </span></template><span v-if="node.kind === 'object'" class="punc">{{ folded.has(node.path) ? `{…} ${node.size === 1 ? t('1 field') : t('{n} fields', { n: node.size })}` : '{' }}</span>
+        <span v-else-if="node.kind === 'array'" class="punc">{{ folded.has(node.path) ? `[…] ${node.size === 1 ? t('1 item') : t('{n} items', { n: node.size })}` : '[' }}</span>
         <span v-else class="value selectable" :class="node.kind">{{ node.text }}</span>
 
         <span class="tools">
@@ -127,12 +127,12 @@ function nameFor(node: Node) {
             v-if="node.depth > 0"
             type="button"
             class="act"
-            :title="`Capture ${node.path} into the environment as {{${nameFor(node)}}}`"
+            :title="t('Capture {path} into the environment as {name}', { path: node.path, name: `{{${nameFor(node)}}}` })"
             @click="emit('capture', node.path, nameFor(node))"
           >
-            <UiIcon name="key" :size="13" />Capture
+            <UiIcon name="key" :size="13" />{{ t('Capture') }}
           </button>
-          <button type="button" class="act" title="Copy the path" @click="emit('copy', node.path)">
+          <button type="button" class="act" :title="t('Copy the path')" @click="emit('copy', node.path)">
             <UiIcon name="copy" :size="13" />
           </button>
         </span>

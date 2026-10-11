@@ -56,6 +56,17 @@ export const ICONS = {
   grip: '<path d="M5 6.5h6M5 9.5h6"/>',
   // Two readings side by side: a plus over a minus, the shape of a change.
   diff: '<path d="M3 5.25h6.5M6.25 2v6.5M3 12h6.5"/><path d="M12.75 4v8"/>',
+  play: '<path d="M5 3.25v9.5l7.5-4.75z"/>',
+  filter: '<path d="M2.5 3.5h11L9.25 8.6v3.65l-2.5 1.25V8.6z"/>',
+  // The two ways the request and the response can lie: stacked, or side by side.
+  rows: '<rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M2 8h12"/>',
+  cols: '<rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M8 2.5v11"/>',
+  server: '<rect x="2.25" y="2.5" width="11.5" height="4.5" rx="1.25"/><rect x="2.25" y="9" width="11.5" height="4.5" rx="1.25"/><path d="M4.75 4.75h.01M4.75 11.25h.01"/>',
+  clock: '<circle cx="8" cy="8" r="5.75"/><path d="M8 4.75V8l2.25 1.5"/>',
+  branch: '<circle cx="4.5" cy="3.75" r="1.5"/><circle cx="4.5" cy="12.25" r="1.5"/><circle cx="11.5" cy="5.75" r="1.5"/><path d="M4.5 5.25v5.5M11.5 7.25c0 2.5-7 1.5-7 3.5"/>',
+  book: '<path d="M3 2.75h7.5a2 2 0 0 1 2 2v8.5H5a2 2 0 0 1-2-2z"/><path d="M3 11.25a2 2 0 0 1 2-2h7.5"/>',
+  export: '<path d="M8 10V2.5M5 5.25L8 2.25l3 3M2.75 9.5v3a1 1 0 0 0 1 1h8.5a1 1 0 0 0 1-1v-3"/>',
+  grid: '<rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1.25"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1.25"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1.25"/><rect x="9" y="9" width="4.5" height="4.5" rx="1.25"/>',
 } as const
 
 export type IconName = keyof typeof ICONS

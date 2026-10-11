@@ -24,15 +24,20 @@ timings you see are real.
 
 ## How it looks
 
-Like paper. Warm off-white surfaces, ink, hairline rules, and one colour —
-ultramarine — kept for the things that act: the Send key, the request you are
-on, a `{{variable}}`, the focus ring. Nothing glows. The method on a request
-and the status on a response are stamped, a block of colour with the text cut
-out of it. A warning is amber and a failure is red; blue is never a status.
-There is a dark theme — the same paper at night, warm graphite rather than
-blue-black — and two more light ones, Linen and Mist, all measured to the same
-contrast floor. The choice lives in Settings and follows the OS until you make
-one.
+Like a workbench: a tinted bench with a few rounded panels lying on it — the
+collections, the request, the response — and a gap between them that you drag
+to resize. There is one colour and it is a highlighter: lime, run over the
+things that act or that you are on — the Send key, the open request, the tab,
+a `{{variable}}` marked like a word under a pen. A warning is amber and a
+failure is red; the highlighter is never a status. Controls are filled, not
+outlined, and a method is a small mark in its own colour.
+
+There is a night theme — the same bench with the lamp off — and three more:
+Cobalt (paper and ultramarine, what volt looked like before 1.0), Linen and
+Mist, all measured to the same contrast floor. The response can lie under the
+request or beside it. The interface speaks English, German, Spanish, Italian, Dutch, Portuguese,
+Russian and Turkish, and follows
+the system until you choose. All of it lives in Settings.
 
 On first launch volt opens a collection of its own, kept under your documents
 folder, so the first thing you can do is make a request. Opening a folder
@@ -83,12 +88,20 @@ kept relative when it is inside the collection so it works on a teammate's
 machine too. History has a filter: words match the URL and name, `404`,
 `5xx` and `error` match how it came back.
 
+## Writing a body
+
+The body editor colours JSON as you type it, marks every `{{variable}}` —
+amber when nothing defines it — keeps the indent on Enter and closes the
+bracket you opened. **Format** pretty-prints. It is still a plain text field
+underneath: undo, selection and your input method work as they do anywhere.
+
 ## Reading a response
 
 Pretty, Tree and Raw. In the tree, every row shows its path and a **Capture**
 key that adds `$.data.token` to the request's captures, named after the field
 — the next send fills it. An HTML response gets a **Preview**, rendered in a
-sandbox that allows nothing. An image is drawn, with its size. The diff key
+sandbox that allows nothing. An image is drawn, with its size. The funnel takes a path — `$.items[*].id`,
+`$..email` — and shows only what it matches. The diff key
 compares this send with the previous one, line by line.
 
 Typing `{{` anywhere a variable can go lists the names that exist — yours,
@@ -100,19 +113,22 @@ Most of it is where you expect it. What differs, differs for a reason:
 
 | In Postman | In volt |
 | --- | --- |
-| Workspace → Collections in the sidebar | One collection open at a time; switch with the name in the top bar. A *workspace* here is a named group of collection folders, in the collection menu. |
-| Environment quick look | The environment picker in the top bar; the pencil beside it edits values |
+| Collections in the sidebar | The same: the open one is the tree, the others are listed under it and a click opens one. Its tabs come back when you return. A *workspace* is a named group of them, under **Tools**. |
+| Environment quick look | The environment menu at the top right: pick one, or **Manage environments…** |
+| The method dropdown | The same, with WebSocket, SSE and gRPC under the methods — one picker for what a request is |
+| Two-pane view | The pane key at the top right puts the response beside the request or under it |
+| Runner, mock servers, monitors, cookies | All under **Tools** at the top right |
 | Tests tab, `pm.test(...)` | **Tests** tab: a value from the response, a comparison, a value — no script. `volt-run` fails on them in CI. |
 | `pm.environment.set(...)` | **Captures** tab: a path into the response, saved into the environment as a secret |
 | Save as example | **Examples** on the response, kept as a file beside the request and redacted |
 | Mock server (hosted) | Mock server on this machine, from the saved examples |
-| Collection Runner, with a data file | **Run…** in the collection menu with **Data file…** (CSV or JSON, one pass per row), and the same from a terminal with `--data` |
+| Collection Runner, with a data file | **Run…** under Tools with **Data file…** (CSV or JSON, one pass per row), and the same from a terminal with `--data` |
 | An exported environment file | Drop it on the window, or **Import…** it: it becomes an environment of the open collection, secrets kept out of the YAML |
 | `{{$randomEmail}}` and the other `$random…` values | The same names, made up the same way |
 | Duplicate, Ctrl+D | The same |
 | Sync to the cloud | The collection is files in your repository; **Sync…** pulls, commits and pushes it |
 
-Import a Postman export from the collection menu; the scripts it cannot read
+Import a Postman export from the arrow beside **New**; the scripts it cannot read
 are listed, line by line, rather than dropped.
 
 ## The file format
@@ -166,7 +182,7 @@ A complete example lives in [`examples/sample-collection`](examples/sample-colle
 
 Deleting a request or a folder moves it to a gitignored `.trash/` inside the
 collection rather than removing it. The toast that says so offers **Undo**, and
-**Bin** in the collection menu lists what is in there and puts any of it back.
+**Bin** in the collection's own menu lists what is in there and puts any of it back.
 
 ### Variables
 
@@ -279,6 +295,10 @@ the same pane a WebSocket uses. volt speaks HTTP/2 itself for this, which is
 also how it reads the `grpc-status` that follows a body — the place a gRPC call
 actually says whether it worked.
 
+A GraphQL **subscription** is sent the same way as a query — the key says
+Subscribe — and each result arrives as a message in the pane a WebSocket
+uses, over the `graphql-transport-ws` protocol.
+
 **GraphQL** is a body kind rather than a protocol: a query and its variables,
 sent as the JSON POST the specification describes. **Fetch schema** asks the
 endpoint what it can do; after that the editor offers the fields that belong
@@ -289,21 +309,44 @@ be a lie waiting to be believed.
 
 ### Auth
 
-Bearer, basic, API key, digest, NTLM, AWS SigV4 and client certificates.
-Digest and NTLM are answered after the server challenges; SigV4 signs the
-finished request, which is why a copied cURL command works for as long as the
-signature lives.
+Bearer, basic, API key, digest, NTLM, AWS SigV4, OAuth 1.0 and client
+certificates. Digest and NTLM are answered after the server challenges; SigV4
+and OAuth 1.0 (HMAC-SHA1 or HMAC-SHA256) sign the finished request, which is
+why a copied cURL command works for as long as the signature lives.
 
-**Get an OAuth token…** fetches one — client credentials, authorization code
-with PKCE, or a refresh — and puts it in the environment as a secret variable.
-It is not hidden inside an auth object: requests use `{{token}}` like anything
-else, and you can see it, reuse it and share it as a name.
+**Get an OAuth token…** fetches an OAuth 2.0 token — client credentials,
+authorization code with PKCE, password, device code, or a refresh — and puts
+it in the environment as a secret variable. The device grant shows the code
+to type and waits for you to approve it. It is not hidden inside an auth
+object: requests use `{{token}}` like anything else, and you can see it,
+reuse it and share it as a name. The form is remembered per collection; the
+client secret and the password are not.
+
+### Certificates and proxies
+
+A server signed by an authority your machine does not know — a company's
+own, a staging box — is trusted by naming that authority's PEM file under
+**Trusted authorities** in Settings, or for one request in its Settings tab.
+That is the alternative to turning verification off. A **client
+certificate** is a PEM with its key, or a `.p12` / `.pfx` with its
+passphrase (the passphrase stays in this app's settings and is never written
+into a collection). Both, and the proxy — `http://`, `https://` or
+`socks5://`, with credentials in the address if it wants them — apply to
+every kind of request: HTTP, WebSocket, SSE and gRPC alike.
 
 ### Importing
 
 **Drop a file on the window** to import it: a Postman, Insomnia or OpenAPI
-export becomes a collection beside your personal one and opens; a folder
-opens as it is.
+export, a HAR file saved from a browser's network tab, or a Bruno collection
+folder becomes a collection beside your personal one and opens; a volt
+folder opens as it is.
+
+A **HAR** file becomes one request per call, grouped by host, with the
+browser's own headers and its cookies left out, repeats folded together and
+images, fonts, scripts and stylesheets skipped. A **Bruno** collection (the
+folder with `bruno.json` and `.bru` files) comes across with its folders,
+environments, auth, bodies and docs; `assert` lines become tests where there
+is an equivalent, and whatever has none is quoted in the report.
 
 A Postman **environment** export is not a collection, and is not treated as
 one: dropped on the window or imported, it becomes an environment of the
@@ -382,6 +425,11 @@ flattened onto the requests rather than lost, and anything that could not come
 across is listed. Environments are not exported: their values live outside the
 collection and stay on your machine.
 
+**Export as OpenAPI** writes an OpenAPI 3.0 document: a path per address, an
+operation per request with its parameters and body as examples, and
+responses built from the request's saved examples — so a collection that has
+been used is most of a spec already.
+
 
 ### Mock server
 
@@ -453,7 +501,7 @@ pnpm typecheck    # Vue + TypeScript
 cargo run --manifest-path src-tauri/Cargo.toml --bin volt-run -- ./my-api
 ```
 
-The Rust side has 254 tests — the auth schemes are checked against their
+The Rust side has 325 tests — the auth schemes are checked against their
 published vectors, and the mock server, the WebSocket, SSE and gRPC paths are
 tested over real loopback sockets rather than mocks. The UI is driven in a real
 browser with Playwright.
@@ -480,7 +528,9 @@ structural.
 | `src-tauri/src/checks.rs` | Assertions on a response |
 | `src-tauri/src/runner.rs` | Running a folder or a collection |
 | `src-tauri/src/openapi.rs` | OpenAPI and Swagger import |
-| `src-tauri/src/aws.rs`, `digest.rs`, `ntlm.rs`, `oauth.rs` | The auth schemes that are not a header |
+| `src-tauri/src/aws.rs`, `digest.rs`, `ntlm.rs`, `oauth.rs`, `oauth1.rs` | The auth schemes that are not a header |
+| `src-tauri/src/har.rs`, `bru.rs`, `bruno.rs` | Import from a HAR file and from a Bruno collection |
+| `src-tauri/src/openapi_export.rs` | Export as an OpenAPI document |
 | `src-tauri/src/stream.rs` | WebSocket and server-sent events |
 | `src-tauri/src/grpc.rs` | gRPC from a `.proto`: unary and streaming |
 | `src-tauri/src/wire.rs` | HTTP/2 itself — frames and trailers |
@@ -505,7 +555,9 @@ Early, but wide. REST, GraphQL, WebSocket, server-sent events and gRPC —
 unary and every kind of streaming, with server reflection for endpoints that
 describe themselves. Collections and folders that pass headers, auth and
 variables down to what is inside them; environments with secret handling;
-bearer, basic, API-key, digest, NTLM, AWS SigV4 and client certificates, with
+bearer, basic, API-key, digest, NTLM, AWS SigV4, OAuth 1.0, client
+certificates (PEM or PKCS#12), custom certificate authorities and proxies on
+every transport, with
 OAuth 2.0 as a step that puts a token in the environment; JSON / text / XML /
 form / urlencoded / binary bodies with file fields in multipart; a GraphQL
 schema browser with completion and marking; a response viewer you can search,
@@ -515,7 +567,8 @@ line; a cookie jar you can look inside; send settings per app and per request;
 tabs; a delete that goes to a recoverable bin; searching the collection;
 keyboard shortcuts; request history; import from Postman, Insomnia and OpenAPI
 — with the shapes a test script shares with volt read as captures and checks —
-and export back to Postman; curl in both directions; code generation for seven
+— plus HAR files and Bruno collections — and export back to Postman or as an
+OpenAPI document; GraphQL subscriptions; curl in both directions; code generation for seven
 languages; a mock server that matches on query and body as well as path;
 documentation as one HTML file; sync through the collection's own git
 repository; workspaces; and monitors.
